@@ -729,7 +729,7 @@ const ChatRoom: React.FC = () => {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="flex flex-col bg-background" style={{ height: '100dvh' }}>
       {/* Header */}
       <header className="flex-shrink-0 glass border-b border-border">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">

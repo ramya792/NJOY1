@@ -42,7 +42,7 @@ const MessageRequests: React.FC = () => {
           where('type', '==', 'follow_request')
         );
         const incomingSnapshot = await getDocs(incomingQuery);
-        const incoming = incomingSnapshot.docs.map((d) => ({
+        const allIncoming = incomingSnapshot.docs.map((d) => ({
           id: d.id,
           fromUserId: d.data().fromUserId,
           fromUsername: d.data().fromUsername,
@@ -50,7 +50,23 @@ const MessageRequests: React.FC = () => {
           createdAt: d.data().createdAt?.toDate() || new Date(),
           type: 'incoming' as const,
         }));
-        setIncomingRequests(incoming);
+
+        // Deduplicate incoming: keep only the latest per user
+        const uniqueIncoming = new Map<string, typeof allIncoming[0]>();
+        allIncoming.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        const dupIncomingIds: string[] = [];
+        for (const req of allIncoming) {
+          if (!uniqueIncoming.has(req.fromUserId)) {
+            uniqueIncoming.set(req.fromUserId, req);
+          } else {
+            dupIncomingIds.push(req.id);
+          }
+        }
+        // Clean up duplicates
+        for (const dupId of dupIncomingIds) {
+          try { await deleteDoc(doc(db, 'notifications', dupId)); } catch (e) { /* ignore */ }
+        }
+        setIncomingRequests(Array.from(uniqueIncoming.values()));
 
         // Fetch outgoing follow requests (requests I sent)
         const outgoingQuery = query(
@@ -59,7 +75,7 @@ const MessageRequests: React.FC = () => {
           where('type', '==', 'follow_request')
         );
         const outgoingSnapshot = await getDocs(outgoingQuery);
-        const outgoing = await Promise.all(
+        const allOutgoing = await Promise.all(
           outgoingSnapshot.docs.map(async (d) => {
             const data = d.data();
             let username = data.toUsername || '';
@@ -90,7 +106,31 @@ const MessageRequests: React.FC = () => {
             };
           })
         );
-        setOutgoingRequests(outgoing);
+
+        // Deduplicate: keep only the latest request per user
+        const uniqueOutgoing = new Map<string, typeof allOutgoing[0]>();
+        // Sort by date descending so the first one we encounter per user is the newest
+        allOutgoing.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        const duplicateIds: string[] = [];
+        for (const req of allOutgoing) {
+          if (!uniqueOutgoing.has(req.fromUserId)) {
+            uniqueOutgoing.set(req.fromUserId, req);
+          } else {
+            // This is a duplicate - mark for deletion
+            duplicateIds.push(req.id);
+          }
+        }
+
+        // Clean up duplicate notifications from Firestore
+        for (const dupId of duplicateIds) {
+          try {
+            await deleteDoc(doc(db, 'notifications', dupId));
+          } catch (e) {
+            console.error('Error cleaning duplicate:', e);
+          }
+        }
+
+        setOutgoingRequests(Array.from(uniqueOutgoing.values()));
       } catch (error) {
         console.error('Error fetching requests:', error);
       } finally {

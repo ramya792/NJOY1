@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Volume2, VolumeX, Eye, ChevronUp } from 'lucide-react';
-import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2 } from 'lucide-react';
+import { doc, updateDoc, arrayUnion, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,10 +29,13 @@ interface ViewerInfo {
 interface StoryViewerProps {
   stories: Story[];
   onClose: () => void;
+  onStoryDeleted?: (storyId: string) => void;
 }
 
-const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose }) => {
+const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose, onStoryDeleted }) => {
   const { userProfile } = useAuth();
+  const { toast } = useToast();
+  const [deleting, setDeleting] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -174,6 +178,40 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose }) => {
 
       {/* Top right controls */}
       <div className="absolute top-10 right-4 z-10 flex items-center gap-2">
+        {isOwnStory && (
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (deleting) return;
+              setDeleting(true);
+              try {
+                await deleteDoc(doc(db, 'stories', currentStory.id));
+                toast({ title: 'Story deleted' });
+                onStoryDeleted?.(currentStory.id);
+                // If this was the last story, close the viewer
+                if (stories.length <= 1) {
+                  onClose();
+                } else {
+                  // Move to next or previous story
+                  if (currentIndex < stories.length - 1) {
+                    setProgress(0);
+                  } else {
+                    setCurrentIndex(prev => Math.max(0, prev - 1));
+                    setProgress(0);
+                  }
+                }
+              } catch (error) {
+                console.error('Error deleting story:', error);
+                toast({ title: 'Failed to delete story', variant: 'destructive' });
+              } finally {
+                setDeleting(false);
+              }
+            }}
+            className="p-1.5 rounded-full bg-black/40"
+          >
+            <Trash2 className="w-5 h-5 text-white" />
+          </button>
+        )}
         {currentStory.mediaType === 'video' && (
           <button
             onClick={() => {

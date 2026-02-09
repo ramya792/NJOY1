@@ -197,7 +197,18 @@ const StoriesBar: React.FC = () => {
       {viewingStories && (
         <StoryViewer 
           stories={viewingStories} 
-          onClose={() => setViewingStories(null)} 
+          onClose={() => setViewingStories(null)}
+          onStoryDeleted={(storyId) => {
+            // Remove the deleted story from local state
+            setMyStories(prev => prev.filter(s => s.id !== storyId));
+            setViewingStories(prev => prev ? prev.filter(s => s.id !== storyId) : null);
+            setGroupedStories(prev => 
+              prev.map(g => ({
+                ...g,
+                stories: g.stories.filter(s => s.id !== storyId),
+              })).filter(g => g.stories.length > 0)
+            );
+          }}
         />
       )}
     </>
