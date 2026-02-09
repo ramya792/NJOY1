@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Search as SearchIcon, X, Users, Music, Hash, Film, Loader2, Youtube } from 'lucide-react';
+import { Search as SearchIcon, X, Users, Music, Hash, Film, Loader2, Youtube, Play, Heart } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,17 @@ interface SearchResult {
   data: any;
 }
 
+interface ExploreFeedItem {
+  id: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  likes: string[];
+  comments?: number;
+  source: 'post' | 'reel';
+  userId: string;
+  username: string;
+}
+
 const SearchTabs: React.FC = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -23,6 +34,11 @@ const SearchTabs: React.FC = () => {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  // Explore feed state
+  const [exploreFeed, setExploreFeed] = useState<ExploreFeedItem[]>([]);
+  const [exploreLoading, setExploreLoading] = useState(true);
 
   // Extract unique hashtags and songs from reels
   const [trendingHashtags, setTrendingHashtags] = useState<string[]>([]);
@@ -77,6 +93,72 @@ const SearchTabs: React.FC = () => {
     };
 
     fetchTrending();
+  }, []);
+
+  // Fetch explore feed (posts + reels for grid)
+  useEffect(() => {
+    const fetchExploreFeed = async () => {
+      setExploreLoading(true);
+      try {
+        const feedItems: ExploreFeedItem[] = [];
+
+        // Fetch recent posts
+        const postsQuery = query(
+          collection(db, 'posts'),
+          orderBy('createdAt', 'desc'),
+          limit(30)
+        );
+        const postsSnapshot = await getDocs(postsQuery);
+        postsSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          feedItems.push({
+            id: doc.id,
+            mediaUrl: data.mediaUrl || '',
+            mediaType: data.mediaType || 'image',
+            likes: data.likes || [],
+            comments: data.comments || 0,
+            source: 'post',
+            userId: data.userId || '',
+            username: data.username || '',
+          });
+        });
+
+        // Fetch recent reels
+        const reelsQuery = query(
+          collection(db, 'reels'),
+          orderBy('createdAt', 'desc'),
+          limit(20)
+        );
+        const reelsSnapshot = await getDocs(reelsQuery);
+        reelsSnapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          feedItems.push({
+            id: doc.id,
+            mediaUrl: data.videoUrl || data.mediaUrl || '',
+            mediaType: 'video',
+            likes: data.likes || [],
+            comments: data.comments || 0,
+            source: 'reel',
+            userId: data.userId || '',
+            username: data.username || '',
+          });
+        });
+
+        // Shuffle for variety
+        for (let i = feedItems.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [feedItems[i], feedItems[j]] = [feedItems[j], feedItems[i]];
+        }
+
+        setExploreFeed(feedItems);
+      } catch (error) {
+        console.error('Error fetching explore feed:', error);
+      } finally {
+        setExploreLoading(false);
+      }
+    };
+
+    fetchExploreFeed();
   }, []);
 
   useEffect(() => {
@@ -191,6 +273,8 @@ const SearchTabs: React.FC = () => {
     return true;
   });
 
+  const showSearchResults = searchFocused || searchQuery.trim().length > 0;
+
   return (
     <div className="min-h-screen bg-background pb-20">
       {/* Search Header */}
@@ -203,11 +287,16 @@ const SearchTabs: React.FC = () => {
               placeholder="Search users, hashtags, music..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
               className="pl-10 pr-10 h-11 bg-secondary border-0 rounded-xl"
             />
-            {searchQuery && (
+            {(searchQuery || searchFocused) && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchFocused(false);
+                  setSearched(false);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 <X className="w-5 h-5" />
@@ -216,10 +305,11 @@ const SearchTabs: React.FC = () => {
           </div>
         </div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="w-full bg-transparent h-12 p-0 overflow-x-auto scrollbar-hide">
-            <div className="flex min-w-full px-4 gap-1">
+        {/* Tabs - only show when in search mode */}
+        {showSearchResults && (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="w-full bg-transparent h-12 p-0 overflow-x-auto scrollbar-hide">
+              <div className="flex min-w-full px-4 gap-1">
               <TabsTrigger
                 value="all"
                 className="flex-shrink-0 px-4 rounded-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -257,123 +347,207 @@ const SearchTabs: React.FC = () => {
             </div>
           </TabsList>
         </Tabs>
-      </div>
-
-      {/* Results */}
-      <div className="max-w-lg mx-auto p-4">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : searched && filteredResults.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center py-12"
-          >
-            <p className="text-muted-foreground">No results found for "{searchQuery}"</p>
-          </motion.div>
-        ) : searched ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-2"
-          >
-            {filteredResults.map((result, index) => (
-              <motion.div
-                key={`${result.type}-${result.id}`}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.03 }}
-              >
-                {result.type === 'user' ? (
-                  <UserSearchResult user={result.data} userId={result.id} />
-                ) : (
-                  <ReelSearchResult reel={result.data} reelId={result.id} showType={result.type} />
-                )}
-              </motion.div>
-            ))}
-          </motion.div>
-        ) : (
-          /* Show trending when no search */
-          <div className="space-y-6">
-            {/* Trending Hashtags */}
-            {trendingHashtags.length > 0 && (
-              <div>
-                <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                  <Hash className="w-4 h-4" />
-                  Trending Hashtags
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {trendingHashtags.map((tag, index) => (
-                    <motion.button
-                      key={tag}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: index * 0.05 }}
-                      onClick={() => handleHashtagClick(tag)}
-                      className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 rounded-full text-sm font-medium transition-colors"
-                    >
-                      {tag}
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Music Search Section */}
-            <div>
-              <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                <Youtube className="w-4 h-4 text-destructive" />
-                Search Music (YouTube, Spotify, SoundCloud)
-              </h3>
-              <MusicSearch />
-            </div>
-
-            {/* Trending Music from App */}
-            {trendingSongs.length > 0 && (
-              <div>
-                <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                  <Music className="w-4 h-4" />
-                  Popular in App
-                </h3>
-                <div className="space-y-2">
-                  {trendingSongs.slice(0, 5).map((item, index) => (
-                    <motion.button
-                      key={item.song}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      onClick={() => handleSongClick(item.song)}
-                      className="w-full flex items-center gap-3 p-3 bg-secondary/50 hover:bg-secondary rounded-xl transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Music className="w-5 h-5 text-primary" />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <p className="font-medium text-sm truncate">{item.song}</p>
-                        <p className="text-xs text-muted-foreground">{item.count} reels</p>
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Empty state */}
-            {trendingHashtags.length === 0 && trendingSongs.length === 0 && (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mx-auto mb-4">
-                  <SearchIcon className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <p className="text-muted-foreground">
-                  Search for users, hashtags, or music
-                </p>
-              </div>
-            )}
-          </div>
         )}
       </div>
+
+      {showSearchResults ? (
+        /* Search Results */
+        <div className="max-w-lg mx-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : searched && filteredResults.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-12"
+            >
+              <p className="text-muted-foreground">No results found for "{searchQuery}"</p>
+            </motion.div>
+          ) : searched ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="space-y-2"
+            >
+              {filteredResults.map((result, index) => (
+                <motion.div
+                  key={`${result.type}-${result.id}`}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.03 }}
+                >
+                  {result.type === 'user' ? (
+                    <UserSearchResult user={result.data} userId={result.id} />
+                  ) : (
+                    <ReelSearchResult reel={result.data} reelId={result.id} showType={result.type} />
+                  )}
+                </motion.div>
+              ))}
+            </motion.div>
+          ) : (
+            /* Show trending when focused but no query */
+            <div className="space-y-6">
+              {/* Trending Hashtags */}
+              {trendingHashtags.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                    <Hash className="w-4 h-4" />
+                    Trending Hashtags
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {trendingHashtags.map((tag, index) => (
+                      <motion.button
+                        key={tag}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.05 }}
+                        onClick={() => handleHashtagClick(tag)}
+                        className="px-3 py-1.5 bg-secondary hover:bg-secondary/80 rounded-full text-sm font-medium transition-colors"
+                      >
+                        {tag}
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Music Search Section */}
+              <div>
+                <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                  <Youtube className="w-4 h-4 text-destructive" />
+                  Search Music (YouTube, Spotify, SoundCloud)
+                </h3>
+                <MusicSearch />
+              </div>
+
+              {/* Trending Music from App */}
+              {trendingSongs.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                    <Music className="w-4 h-4" />
+                    Popular in App
+                  </h3>
+                  <div className="space-y-2">
+                    {trendingSongs.slice(0, 5).map((item, index) => (
+                      <motion.button
+                        key={item.song}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        onClick={() => handleSongClick(item.song)}
+                        className="w-full flex items-center gap-3 p-3 bg-secondary/50 hover:bg-secondary rounded-xl transition-colors"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Music className="w-5 h-5 text-primary" />
+                        </div>
+                        <div className="flex-1 text-left">
+                          <p className="font-medium text-sm truncate">{item.song}</p>
+                          <p className="text-xs text-muted-foreground">{item.count} reels</p>
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {trendingHashtags.length === 0 && trendingSongs.length === 0 && (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mx-auto mb-4">
+                    <SearchIcon className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <p className="text-muted-foreground">
+                    Search for users, hashtags, or music
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Explore Feed Grid - Instagram-style */
+        <div className="max-w-lg mx-auto">
+          {exploreLoading ? (
+            <div className="grid grid-cols-3 gap-0.5">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`bg-secondary animate-pulse ${
+                    i % 5 === 0 ? 'col-span-2 row-span-2 aspect-square' : 'aspect-square'
+                  }`}
+                />
+              ))}
+            </div>
+          ) : exploreFeed.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+              <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
+                <SearchIcon className="w-10 h-10 text-muted-foreground" />
+              </div>
+              <h2 className="font-semibold text-lg mb-2">Explore</h2>
+              <p className="text-muted-foreground text-sm">
+                Posts and reels from the community will appear here
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-0.5">
+              {exploreFeed.map((item, index) => {
+                // Every 10th item starting from 0 gets the large tile (2x2)
+                const isLargeTile = index % 10 === 0;
+
+                return (
+                  <motion.button
+                    key={`${item.source}-${item.id}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: Math.min(index * 0.02, 0.5) }}
+                    onClick={() => {
+                      if (item.source === 'reel') {
+                        navigate('/reels');
+                      } else {
+                        navigate(`/user/${item.userId}`);
+                      }
+                    }}
+                    className={`relative group overflow-hidden bg-secondary ${
+                      isLargeTile ? 'col-span-2 row-span-2' : ''
+                    } aspect-square`}
+                  >
+                    {item.mediaType === 'video' ? (
+                      <>
+                        <video
+                          src={item.mediaUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                          preload="metadata"
+                        />
+                        <div className="absolute top-2 right-2">
+                          <Play className="w-4 h-4 text-white drop-shadow-lg" fill="white" />
+                        </div>
+                      </>
+                    ) : (
+                      <img
+                        src={item.mediaUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    )}
+
+                    {/* Hover overlay */}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                      <div className="flex items-center gap-1 text-white font-semibold text-sm">
+                        <Heart className="w-5 h-5" fill="white" />
+                        <span>{item.likes?.length || 0}</span>
+                      </div>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

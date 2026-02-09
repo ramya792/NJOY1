@@ -80,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         followers: [],
         following: [],
         postsCount: 0,
+        isPrivate: false,
         createdAt: serverTimestamp(),
       };
 

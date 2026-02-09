@@ -232,6 +232,8 @@ const UserProfile: React.FC = () => {
           fromUsername: currentUser.username,
           fromUserPhoto: currentUser.photoURL || '',
           toUserId: profile.uid,
+          toUsername: profile.username || '',
+          toUserPhoto: profile.photoURL || '',
           message: 'requested to follow you',
           read: false,
           createdAt: serverTimestamp(),

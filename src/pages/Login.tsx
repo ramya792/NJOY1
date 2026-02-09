@@ -67,9 +67,27 @@ const Login: React.FC = () => {
       await signInWithGoogle();
       navigate('/');
     } catch (error: any) {
+      console.error('Google sign-in error:', error);
+      const errorCode = error?.code || '';
+      let description = 'Something went wrong. Please try again.';
+      
+      if (errorCode === 'auth/popup-closed-by-user') {
+        description = 'Sign-in popup was closed. Please try again.';
+      } else if (errorCode === 'auth/popup-blocked') {
+        description = 'Popup was blocked by your browser. Please allow popups and try again.';
+      } else if (errorCode === 'auth/cancelled-popup-request') {
+        description = 'Only one popup request is allowed at a time.';
+      } else if (errorCode === 'auth/unauthorized-domain') {
+        description = 'This domain is not authorized for Google sign-in. Please add it in Firebase Console.';
+      } else if (errorCode === 'auth/operation-not-allowed') {
+        description = 'Google sign-in is not enabled. Please enable it in Firebase Console.';
+      } else if (error.message) {
+        description = error.message;
+      }
+      
       toast({
         title: 'Google sign in failed',
-        description: error.message || 'Something went wrong',
+        description,
         variant: 'destructive',
       });
     } finally {

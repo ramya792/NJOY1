@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Check, X, Loader2, UserPlus, UserCheck, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  collection, query, where, getDocs, doc, deleteDoc, 
+  collection, query, where, getDocs, doc, deleteDoc, getDoc,
   updateDoc, arrayUnion, addDoc, serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -59,15 +59,37 @@ const MessageRequests: React.FC = () => {
           where('type', '==', 'follow_request')
         );
         const outgoingSnapshot = await getDocs(outgoingQuery);
-        const outgoing = outgoingSnapshot.docs.map((d) => ({
-          id: d.id,
-          fromUserId: d.data().toUserId,
-          fromUsername: d.data().toUsername || 'User',
-          fromUserPhoto: d.data().toUserPhoto || '',
-          createdAt: d.data().createdAt?.toDate() || new Date(),
-          type: 'outgoing' as const,
-          status: 'pending' as const,
-        }));
+        const outgoing = await Promise.all(
+          outgoingSnapshot.docs.map(async (d) => {
+            const data = d.data();
+            let username = data.toUsername || '';
+            let photoURL = data.toUserPhoto || '';
+            
+            // If username is missing, fetch from user profile
+            if (!username && data.toUserId) {
+              try {
+                const userDoc = await getDoc(doc(db, 'users', data.toUserId));
+                if (userDoc.exists()) {
+                  const userData = userDoc.data();
+                  username = userData.username || 'User';
+                  photoURL = userData.photoURL || '';
+                }
+              } catch (e) {
+                console.error('Error fetching user:', e);
+              }
+            }
+            
+            return {
+              id: d.id,
+              fromUserId: data.toUserId,
+              fromUsername: username || 'User',
+              fromUserPhoto: photoURL,
+              createdAt: data.createdAt?.toDate() || new Date(),
+              type: 'outgoing' as const,
+              status: 'pending' as const,
+            };
+          })
+        );
         setOutgoingRequests(outgoing);
       } catch (error) {
         console.error('Error fetching requests:', error);

@@ -866,7 +866,7 @@ const ChatRoom: React.FC = () => {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 border-t border-border p-4 safe-bottom">
+      <div className="flex-shrink-0 border-t border-border p-4">
         {isRecording ? (
           <div className="flex items-center gap-4 max-w-lg mx-auto">
             <div className="flex-1 flex items-center gap-3 bg-destructive/10 rounded-full px-4 py-2">

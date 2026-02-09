@@ -26,6 +26,3 @@ dist-ssr
 # Lock files
 package-lock.js
 package-lock.json
-
-# Deployment
-vercel.json

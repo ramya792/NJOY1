@@ -27,7 +27,7 @@ const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  const [isPrivate, setIsPrivate] = useState(userProfile?.isPrivate ?? true);
+  const [isPrivate, setIsPrivate] = useState(userProfile?.isPrivate ?? false);
   const [showActivity, setShowActivity] = useState(userProfile?.showActivity ?? true);
   const [allowMessages, setAllowMessages] = useState(userProfile?.allowMessages ?? true);
   const [likesNotifications, setLikesNotifications] = useState(userProfile?.notifications?.likes ?? true);

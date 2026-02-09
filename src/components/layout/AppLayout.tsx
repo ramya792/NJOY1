@@ -1,11 +1,15 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import BottomNavigation from './BottomNavigation';
 import { useAuth } from '@/contexts/AuthContext';
 import CallManager from '@/components/calls/CallManager';
 
 const AppLayout: React.FC = () => {
   const { user } = useAuth();
+  const location = useLocation();
+
+  // Hide bottom navigation on chat room pages
+  const hideBottomNav = location.pathname.match(/^\/messages\/[^/]+$/);
 
   if (!user) {
     return <Outlet />;
@@ -13,10 +17,10 @@ const AppLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="safe-bottom">
+      <main className={hideBottomNav ? '' : 'safe-bottom'}>
         <Outlet />
       </main>
-      <BottomNavigation />
+      {!hideBottomNav && <BottomNavigation />}
       <CallManager />
     </div>
   );
