@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { collection, query, getDocs, limit, orderBy } from 'firebase/firestore';
+import { collection, query, limit, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
@@ -30,32 +30,33 @@ const Home: React.FC = () => {
   useEffect(() => {
     if (!userProfile) return;
 
-    const fetchPosts = async () => {
-      try {
-        // Fetch all recent posts (no filter by userId)
-        const postsQuery = query(
-          collection(db, 'posts'),
-          orderBy('createdAt', 'desc'),
-          limit(50)
-        );
+    // Use real-time listener for posts
+    const postsQuery = query(
+      collection(db, 'posts'),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
 
-        const snapshot = await getDocs(postsQuery);
-        const fetchedPosts = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate() || new Date(),
-        })) as Post[];
-        
-        setPosts(fetchedPosts);
-      } catch (error) {
-        console.error('Error fetching posts:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const unsubscribe = onSnapshot(postsQuery, (snapshot) => {
+      const fetchedPosts = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+      })) as Post[];
+      
+      setPosts(fetchedPosts);
+      setLoading(false);
+    }, (error) => {
+      console.error('Error fetching posts:', error);
+      setLoading(false);
+    });
 
-    fetchPosts();
+    return () => unsubscribe();
   }, [userProfile]);
+
+  const handlePostDelete = useCallback((postId: string) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -97,7 +98,7 @@ const Home: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
-                <PostCard post={post} />
+                <PostCard post={post} onDelete={handlePostDelete} />
               </motion.div>
             ))}
           </div>

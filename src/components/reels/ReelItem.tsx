@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, MessageCircle, Bookmark, Volume2, VolumeX, Play, Download, Loader2, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -27,7 +27,7 @@ interface ReelItemProps {
   isActive: boolean;
 }
 
-const ReelItem: React.FC<ReelItemProps> = ({ reel, isActive }) => {
+const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
   const { userProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -166,6 +166,7 @@ const ReelItem: React.FC<ReelItemProps> = ({ reel, isActive }) => {
         loop
         muted={muted}
         playsInline
+        preload={isActive ? 'auto' : 'none'}
         onClick={togglePlay}
         onDoubleClick={handleDoubleTap}
       />
@@ -238,10 +239,24 @@ const ReelItem: React.FC<ReelItemProps> = ({ reel, isActive }) => {
 
       {/* Bottom info */}
       <div className="absolute left-3 right-16 bottom-8">
-        <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm mb-2">
+        <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm mb-1">
           @{reel.username}
         </button>
-        <p className="text-white text-sm line-clamp-2">{reel.caption}</p>
+        {/* Hashtags - show below username and above caption */}
+        {(() => {
+          const hashtags = (reel.caption || '').match(/#\w+/g);
+          if (!hashtags || hashtags.length === 0) return null;
+          return (
+            <div className="flex flex-wrap gap-1 mb-1">
+              {hashtags.map((tag, i) => (
+                <span key={i} className="text-blue-400 text-xs font-medium">{tag}</span>
+              ))}
+            </div>
+          );
+        })()}
+        <p className="text-white text-sm line-clamp-2">
+          {(reel.caption || '').replace(/#\w+/g, '').trim()}
+        </p>
         {reel.song && (
           <div className="flex items-center gap-2 mt-2">
             <div className="w-4 h-4 bg-white/20 rounded animate-spin" />
@@ -269,6 +284,8 @@ const ReelItem: React.FC<ReelItemProps> = ({ reel, isActive }) => {
       </AnimatePresence>
     </div>
   );
-};
+});
+
+ReelItem.displayName = 'ReelItem';
 
 export default ReelItem;

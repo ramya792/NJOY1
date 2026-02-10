@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Grid3X3, Film, Bookmark, LogOut, Trash2, X } from 'lucide-react';
+import { Settings, Grid3X3, Film, Bookmark, LogOut, Trash2, X, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, arrayRemove, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -192,6 +192,26 @@ const Profile: React.FC = () => {
             {userProfile.username}
           </h1>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={async () => {
+                const shareUrl = `${window.location.origin}/user/${userProfile.uid}`;
+                if (navigator.share) {
+                  try {
+                    await navigator.share({
+                      title: `@${userProfile.username} on NJOY`,
+                      text: `Check out @${userProfile.username}'s profile on NJOY!`,
+                      url: shareUrl,
+                    });
+                  } catch {}
+                } else {
+                  await navigator.clipboard.writeText(shareUrl);
+                  toast({ title: 'Profile link copied!' });
+                }
+              }}
+              className="p-2 rounded-full hover:bg-secondary transition-colors"
+            >
+              <Share2 className="w-5 h-5" />
+            </button>
             <button 
               onClick={() => navigate('/settings')}
               className="p-2 rounded-full hover:bg-secondary transition-colors"

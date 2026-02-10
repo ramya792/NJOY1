@@ -178,29 +178,12 @@ const SearchTabs: React.FC = () => {
 
         // Search users - search by username prefix AND fetch all users for partial match
         if (activeTab === 'all' || activeTab === 'users') {
-          // First: prefix match on username field
-          const usersQuery = query(
-            collection(db, 'users'),
-            where('username', '>=', searchLower),
-            where('username', '<=', searchLower + '\uf8ff'),
-            limit(20)
-          );
-          const usersSnapshot = await getDocs(usersQuery);
           const foundIds = new Set<string>();
-          
-          usersSnapshot.forEach((doc) => {
-            foundIds.add(doc.id);
-            searchResults.push({
-              type: 'user',
-              id: doc.id,
-              data: doc.data(),
-            });
-          });
 
-          // Second: broader search - fetch recent users and filter by displayName or partial username
+          // Fetch users (broader set) and filter client-side for case-insensitive partial match
           const allUsersQuery = query(
             collection(db, 'users'),
-            limit(200)
+            limit(500)
           );
           const allUsersSnapshot = await getDocs(allUsersQuery);
           allUsersSnapshot.forEach((doc) => {
@@ -208,8 +191,9 @@ const SearchTabs: React.FC = () => {
             const data = doc.data();
             const username = (data.username || '').toLowerCase();
             const displayName = (data.displayName || '').toLowerCase();
+            const email = (data.email || '').toLowerCase();
             
-            if (username.includes(searchLower) || displayName.includes(searchLower)) {
+            if (username.includes(searchLower) || displayName.includes(searchLower) || email.split('@')[0].includes(searchLower)) {
               foundIds.add(doc.id);
               searchResults.push({
                 type: 'user',
@@ -392,9 +376,15 @@ const SearchTabs: React.FC = () => {
               <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mx-auto mb-4">
                 <SearchIcon className="w-8 h-8 text-muted-foreground" />
               </div>
-              <p className="font-semibold text-lg mb-1">User not found</p>
+              <p className="font-semibold text-lg mb-1">
+                {(activeTab === 'all' || activeTab === 'users') ? 'User not found' : 'No results found'}
+              </p>
               <p className="text-muted-foreground text-sm">No results found for "{searchQuery}"</p>
-              <p className="text-muted-foreground text-xs mt-1">Try searching with a different username or name</p>
+              <p className="text-muted-foreground text-xs mt-1">
+                {(activeTab === 'all' || activeTab === 'users') 
+                  ? 'This user may not have signed up yet. Try a different username or name.'
+                  : 'Try searching with different keywords'}
+              </p>
             </motion.div>
           ) : searched ? (
             <motion.div

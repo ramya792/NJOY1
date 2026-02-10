@@ -1,6 +1,6 @@
 import React, { useState, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { doc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, serverTimestamp, getDocs, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -182,6 +182,22 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
     }
   };
 
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/user/${post.userId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Check out this post by @${post.username} on NJOY`,
+          text: post.caption || 'Check out this post on NJOY!',
+          url: shareUrl,
+        });
+      } catch {}
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({ title: 'Link copied to clipboard!' });
+    }
+  };
+
   const loadComments = async () => {
     setLoadingComments(true);
     try {
@@ -311,6 +327,9 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
             <button onClick={handleToggleComments}>
               <MessageCircle className="w-6 h-6" />
             </button>
+            <motion.button whileTap={{ scale: 0.9 }} onClick={handleShare}>
+              <Share2 className="w-5 h-5" />
+            </motion.button>
             {(post.allowDownload !== false) && (
               <motion.button whileTap={{ scale: 0.9 }} onClick={handleDownload} disabled={downloading}>
                 {downloading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}

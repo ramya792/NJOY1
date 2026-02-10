@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -23,6 +23,8 @@ const Reels: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isScrollingRef = useRef(false);
 
   useEffect(() => {
     const reelsQuery = query(
@@ -45,14 +47,43 @@ const Reels: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleScroll = () => {
-    if (containerRef.current) {
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return;
+    
+    // Clear previous timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    
+    isScrollingRef.current = true;
+
+    // Debounce: wait for scroll to settle before updating index
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (!containerRef.current) return;
       const scrollTop = containerRef.current.scrollTop;
       const height = containerRef.current.clientHeight;
       const index = Math.round(scrollTop / height);
-      setCurrentIndex(index);
-    }
-  };
+      const clampedIndex = Math.max(0, Math.min(index, reels.length - 1));
+      
+      // Snap to the nearest reel
+      containerRef.current.scrollTo({
+        top: clampedIndex * height,
+        behavior: 'smooth'
+      });
+      
+      setCurrentIndex(clampedIndex);
+      isScrollingRef.current = false;
+    }, 150);
+  }, [reels.length]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (loading) {
     return (

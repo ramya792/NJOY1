@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Lock, MessageCircle, MoreVertical, UserX, Shield, Grid3X3, Film } from 'lucide-react';
+import { ArrowLeft, Lock, MessageCircle, MoreVertical, UserX, Shield, Grid3X3, Film, Share2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   doc, getDoc, getDocs, collection, query, where, orderBy, onSnapshot,
@@ -356,6 +356,24 @@ const UserProfile: React.FC = () => {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={async () => {
+                const shareUrl = `${window.location.origin}/user/${userId}`;
+                if (navigator.share) {
+                  try {
+                    await navigator.share({
+                      title: `@${profile.username} on NJOY`,
+                      text: `Check out @${profile.username}'s profile on NJOY!`,
+                      url: shareUrl,
+                    });
+                  } catch {}
+                } else {
+                  await navigator.clipboard.writeText(shareUrl);
+                  toast({ title: 'Profile link copied!' });
+                }
+              }}>
+                <Share2 className="w-4 h-4 mr-2" />
+                Share Profile
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={handleBlockUser}>
                 <UserX className="w-4 h-4 mr-2" />
                 {isBlocked ? 'Unblock User' : 'Block User'}
