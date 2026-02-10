@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { CallService, CallData } from '@/lib/callService';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import IncomingCall from '@/components/calls/IncomingCall';
 
 const CallManager: React.FC = () => {
@@ -34,16 +36,30 @@ const CallManager: React.FC = () => {
     
     await CallService.acceptCall(incomingCall.id);
     
-    // Navigate to chat room with caller
-    const conversationQuery = await import('firebase/firestore').then(({ query, collection, where, getDocs }) => 
-      getDocs(query(
-        collection(import('@/lib/firebase').then(m => m.db), 'conversations'),
+    // Find existing conversation with caller
+    try {
+      const conversationsQuery = query(
+        collection(db, 'conversations'),
         where('participants', 'array-contains', userProfile?.uid || '')
-      ))
-    );
+      );
+      const snapshot = await getDocs(conversationsQuery);
+      let foundConvId: string | null = null;
+      snapshot.docs.forEach((doc) => {
+        if (doc.data().participants.includes(incomingCall.callerId)) {
+          foundConvId = doc.id;
+        }
+      });
+      
+      if (foundConvId) {
+        navigate(`/messages/${foundConvId}`);
+      } else {
+        navigate(`/messages/new?userId=${incomingCall.callerId}`);
+      }
+    } catch (error) {
+      console.error('Error finding conversation:', error);
+      navigate(`/messages/new?userId=${incomingCall.callerId}`);
+    }
     
-    // Find existing conversation or create new
-    navigate(`/messages/${incomingCall.callerId}`);
     setIncomingCall(null);
   };
 

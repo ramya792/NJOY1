@@ -38,6 +38,7 @@ interface Post {
   comments: number;
   saves: string[];
   createdAt: Date;
+  allowDownload?: boolean;
 }
 
 interface Comment {
@@ -310,9 +311,11 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
             <button onClick={handleToggleComments}>
               <MessageCircle className="w-6 h-6" />
             </button>
-            <motion.button whileTap={{ scale: 0.9 }} onClick={handleDownload} disabled={downloading}>
-              {downloading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-            </motion.button>
+            {(post.allowDownload !== false) && (
+              <motion.button whileTap={{ scale: 0.9 }} onClick={handleDownload} disabled={downloading}>
+                {downloading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+              </motion.button>
+            )}
           </div>
           <motion.button whileTap={{ scale: 0.8 }} onClick={handleSave}>
             <Bookmark className={`w-6 h-6 transition-colors ${saved ? 'text-foreground fill-foreground' : ''}`} />

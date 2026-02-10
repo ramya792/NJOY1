@@ -163,7 +163,7 @@ const SearchTabs: React.FC = () => {
 
   useEffect(() => {
     const searchTimeout = setTimeout(async () => {
-      if (searchQuery.trim().length < 2) {
+      if (searchQuery.trim().length < 1) {
         setResults([]);
         setSearched(false);
         return;
@@ -174,23 +174,49 @@ const SearchTabs: React.FC = () => {
 
       try {
         const searchResults: SearchResult[] = [];
-        const searchLower = searchQuery.toLowerCase();
+        const searchLower = searchQuery.toLowerCase().trim();
 
-        // Search users
+        // Search users - search by username prefix AND fetch all users for partial match
         if (activeTab === 'all' || activeTab === 'users') {
+          // First: prefix match on username field
           const usersQuery = query(
             collection(db, 'users'),
             where('username', '>=', searchLower),
             where('username', '<=', searchLower + '\uf8ff'),
-            limit(10)
+            limit(20)
           );
           const usersSnapshot = await getDocs(usersQuery);
+          const foundIds = new Set<string>();
+          
           usersSnapshot.forEach((doc) => {
+            foundIds.add(doc.id);
             searchResults.push({
               type: 'user',
               id: doc.id,
               data: doc.data(),
             });
+          });
+
+          // Second: broader search - fetch recent users and filter by displayName or partial username
+          const allUsersQuery = query(
+            collection(db, 'users'),
+            limit(200)
+          );
+          const allUsersSnapshot = await getDocs(allUsersQuery);
+          allUsersSnapshot.forEach((doc) => {
+            if (foundIds.has(doc.id)) return;
+            const data = doc.data();
+            const username = (data.username || '').toLowerCase();
+            const displayName = (data.displayName || '').toLowerCase();
+            
+            if (username.includes(searchLower) || displayName.includes(searchLower)) {
+              foundIds.add(doc.id);
+              searchResults.push({
+                type: 'user',
+                id: doc.id,
+                data: data,
+              });
+            }
           });
         }
 
@@ -249,7 +275,7 @@ const SearchTabs: React.FC = () => {
       } finally {
         setLoading(false);
       }
-    }, 500);
+    }, 300);
 
     return () => clearTimeout(searchTimeout);
   }, [searchQuery, activeTab]);
@@ -276,7 +302,7 @@ const SearchTabs: React.FC = () => {
   const showSearchResults = searchFocused || searchQuery.trim().length > 0;
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-[calc(100dvh-56px)] bg-background pb-4">
       {/* Search Header */}
       <div className="sticky top-0 z-40 glass border-b border-border">
         <div className="p-4 max-w-lg mx-auto">
@@ -363,7 +389,12 @@ const SearchTabs: React.FC = () => {
               animate={{ opacity: 1 }}
               className="text-center py-12"
             >
-              <p className="text-muted-foreground">No results found for "{searchQuery}"</p>
+              <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mx-auto mb-4">
+                <SearchIcon className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="font-semibold text-lg mb-1">User not found</p>
+              <p className="text-muted-foreground text-sm">No results found for "{searchQuery}"</p>
+              <p className="text-muted-foreground text-xs mt-1">Try searching with a different username or name</p>
             </motion.div>
           ) : searched ? (
             <motion.div

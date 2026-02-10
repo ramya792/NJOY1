@@ -111,6 +111,12 @@
 @layer base {
   * {
     @apply border-border;
+    box-sizing: border-box;
+  }
+  
+  html {
+    height: 100%;
+    overflow: hidden;
   }
   
   body {
@@ -118,10 +124,24 @@
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  
+  #root {
+    height: 100%;
+    overflow: hidden;
   }
   
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Poppins', system-ui, sans-serif;
+  }
+
+  /* Prevent zoom on input focus on mobile */
+  input, textarea, select {
+    font-size: 16px !important;
   }
 }
 
@@ -182,8 +202,10 @@
     backdrop-filter: var(--blur-glass);
     -webkit-backdrop-filter: var(--blur-glass);
     border-top: 1px solid hsl(var(--border));
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     z-index: 50;
+    height: 56px;
+    flex-shrink: 0;
   }
   
   /* Hide scrollbar but keep functionality */
@@ -300,10 +322,53 @@
 
 @layer utilities {
   .safe-bottom {
-    padding-bottom: calc(env(safe-area-inset-bottom) + 4.5rem);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4.5rem);
   }
   
   .safe-top {
-    padding-top: env(safe-area-inset-top);
+    padding-top: env(safe-area-inset-top, 0px);
   }
+}
+
+/* Mobile-specific styles */
+@media (max-width: 640px) {
+  /* Ensure pages don't overflow on mobile */
+  .min-h-screen {
+    min-height: 100dvh;
+  }
+  
+  /* Fix sticky headers on mobile */
+  .sticky {
+    position: -webkit-sticky;
+    position: sticky;
+  }
+  
+  /* Prevent content from being hidden behind bottom nav */
+  .pb-20 {
+    padding-bottom: 5rem;
+  }
+  
+  /* Better touch targets on mobile */
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  
+  /* Fix emoji picker on mobile */
+  em-emoji-picker {
+    max-width: calc(100vw - 32px) !important;
+    max-height: 300px !important;
+  }
+}
+
+/* Fix for virtual keyboard on mobile */
+@media (max-height: 500px) {
+  .bottom-nav {
+    display: none;
+  }
+}
+
+/* Ensure smooth scrolling everywhere */
+* {
+  -webkit-overflow-scrolling: touch;
 }

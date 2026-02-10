@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Send, Phone, Video, Info, Image, Smile, Paperclip, FileText, X, Loader2, PhoneOff,
-  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause
+  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { 
@@ -107,6 +107,9 @@ const ChatRoom: React.FC = () => {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
+  const [showUserInfoDialog, setShowUserInfoDialog] = useState(false);
+  const [participantFollowers, setParticipantFollowers] = useState<string[]>([]);
+  const [participantFollowing, setParticipantFollowing] = useState<string[]>([]);
 
   // Recording timer
   useEffect(() => {
@@ -389,10 +392,21 @@ const ChatRoom: React.FC = () => {
   const handleSend = async () => {
     if (!newMessage.trim() || !userProfile || !participant) return;
 
-    setSending(true);
     const messageText = newMessage.trim();
     setNewMessage('');
     setShowEmojiPicker(false);
+
+    // Optimistic update - add message immediately to UI
+    const optimisticId = `temp_${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: optimisticId,
+      senderId: userProfile.uid,
+      text: messageText,
+      createdAt: new Date(),
+      seen: false,
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setTimeout(scrollToBottom, 50);
 
     try {
       let convId = currentConversationId;
@@ -432,9 +446,14 @@ const ChatRoom: React.FC = () => {
 
     } catch (error) {
       console.error('Error sending message:', error);
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
       setNewMessage(messageText);
-    } finally {
-      setSending(false);
+      toast({
+        title: 'Failed to send',
+        description: 'Message could not be sent. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -729,9 +748,9 @@ const ChatRoom: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col bg-background" style={{ height: '100dvh' }}>
+    <div className="flex flex-col bg-background" style={{ height: '100dvh', maxHeight: '100dvh' }}>
       {/* Header */}
-      <header className="flex-shrink-0 glass border-b border-border">
+      <header className="flex-shrink-0 glass border-b border-border z-10">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate('/messages')} className="p-2 -ml-2">
@@ -752,7 +771,23 @@ const ChatRoom: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div>
+              <div 
+                className="cursor-pointer select-none"
+                onDoubleClick={async () => {
+                  if (!participant) return;
+                  try {
+                    const userDoc = await getDoc(doc(db, 'users', participant.uid));
+                    if (userDoc.exists()) {
+                      const data = userDoc.data();
+                      setParticipantFollowers(data.followers || []);
+                      setParticipantFollowing(data.following || []);
+                    }
+                    setShowUserInfoDialog(true);
+                  } catch (error) {
+                    console.error('Error fetching user info:', error);
+                  }
+                }}
+              >
                 <p className="font-semibold text-sm">{participant?.username}</p>
                 {participant?.showActivity !== false && (
                   <p className="text-xs text-muted-foreground">
@@ -804,7 +839,7 @@ const ChatRoom: React.FC = () => {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
@@ -826,15 +861,12 @@ const ChatRoom: React.FC = () => {
             </p>
           </div>
         ) : (
-          messages.map((message, index) => {
+          messages.map((message) => {
             const isMine = message.senderId === userProfile?.uid;
             
             return (
-              <motion.div
+              <div
                 key={message.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.02 }}
                 className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
               >
                 <DropdownMenu>
@@ -858,7 +890,7 @@ const ChatRoom: React.FC = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </motion.div>
+              </div>
             );
           })
         )}
@@ -866,7 +898,7 @@ const ChatRoom: React.FC = () => {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 border-t border-border p-4">
+      <div className="flex-shrink-0 border-t border-border p-3 bg-background" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}>
         {isRecording ? (
           <div className="flex items-center gap-4 max-w-lg mx-auto">
             <div className="flex-1 flex items-center gap-3 bg-destructive/10 rounded-full px-4 py-2">
@@ -1093,6 +1125,53 @@ const ChatRoom: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* User Info Dialog - shown on double tap of username */}
+      <Dialog open={showUserInfoDialog} onOpenChange={setShowUserInfoDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-center">{participant?.username}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center py-4">
+            <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
+              {participant?.photoURL ? (
+                <img
+                  src={participant.photoURL}
+                  alt={participant.username}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-2xl font-semibold text-muted-foreground">
+                  {participant?.username?.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-8 mt-2">
+              <div className="text-center">
+                <p className="font-bold text-lg">{participantFollowers.length}</p>
+                <p className="text-sm text-muted-foreground">Followers</p>
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-lg">{participantFollowing.length}</p>
+                <p className="text-sm text-muted-foreground">Following</p>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6 w-full">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowUserInfoDialog(false);
+                  navigate(`/user/${participant?.uid}`);
+                }}
+              >
+                <Users className="w-4 h-4 mr-2" />
+                View Profile
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

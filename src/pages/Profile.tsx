@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import ProfileHeader from '@/components/profile/ProfileHeader';
 import PostGrid from '@/components/profile/PostGrid';
 import SavedItemCard from '@/components/profile/SavedItemCard';
+import SavedItemViewer from '@/components/profile/SavedItemViewer';
 import EditProfileModal from '@/components/profile/EditProfileModal';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -49,6 +50,7 @@ const Profile: React.FC = () => {
   const [selectedSavedItem, setSelectedSavedItem] = useState<SavedItem | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [viewingSavedItem, setViewingSavedItem] = useState<SavedItem | null>(null);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -277,6 +279,7 @@ const Profile: React.FC = () => {
                     setSelectedSavedItem(item);
                     setShowDeleteDialog(true);
                   }}
+                  onView={(item) => setViewingSavedItem(item)}
                 />
               ))}
             </div>
@@ -323,6 +326,13 @@ const Profile: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Saved Item Viewer */}
+      <SavedItemViewer
+        item={viewingSavedItem}
+        isOpen={!!viewingSavedItem}
+        onClose={() => setViewingSavedItem(null)}
+      />
     </div>
   );
 };

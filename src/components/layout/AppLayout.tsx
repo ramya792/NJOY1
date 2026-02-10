@@ -16,8 +16,10 @@ const AppLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className={hideBottomNav ? '' : 'safe-bottom'}>
+    <div className="h-full flex flex-col overflow-hidden bg-background">
+      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${hideBottomNav ? '' : 'pb-14'}`}
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         <Outlet />
       </main>
       {!hideBottomNav && <BottomNavigation />}

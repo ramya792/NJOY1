@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import { Film, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 
 interface SavedItem {
   id: string;
@@ -16,25 +15,10 @@ interface SavedItemCardProps {
   item: SavedItem;
   index: number;
   onUnsave: (item: SavedItem) => void;
+  onView: (item: SavedItem) => void;
 }
 
-const SavedItemCard: React.FC<SavedItemCardProps> = ({ item, index, onUnsave }) => {
-  const navigate = useNavigate();
-  const [lastTap, setLastTap] = useState(0);
-
-  const handleTap = () => {
-    const now = Date.now();
-    if (now - lastTap < 300) {
-      // Double tap - open the item
-      if (item.type === 'reel') {
-        navigate(`/reels?id=${item.id}`);
-      } else {
-        navigate(`/post/${item.id}`);
-      }
-    }
-    setLastTap(now);
-  };
-
+const SavedItemCard: React.FC<SavedItemCardProps> = ({ item, index, onUnsave, onView }) => {
   return (
     <motion.div
       key={`${item.type}-${item.id}`}
@@ -42,19 +26,21 @@ const SavedItemCard: React.FC<SavedItemCardProps> = ({ item, index, onUnsave }) 
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: index * 0.05 }}
       className="aspect-square relative group cursor-pointer"
-      onClick={handleTap}
+      onClick={() => onView(item)}
     >
       {item.mediaType === 'video' ? (
         <video
           src={item.mediaUrl}
           className="w-full h-full object-cover"
           muted
+          preload="metadata"
         />
       ) : (
         <img
           src={item.mediaUrl}
           alt=""
           className="w-full h-full object-cover"
+          loading="lazy"
         />
       )}
       
@@ -67,7 +53,7 @@ const SavedItemCard: React.FC<SavedItemCardProps> = ({ item, index, onUnsave }) 
       
       {/* Overlay with unsave button */}
       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-        <p className="text-white text-xs">Double-tap to open</p>
+        <p className="text-white text-xs">Tap to view</p>
         <button
           onClick={(e) => {
             e.stopPropagation();

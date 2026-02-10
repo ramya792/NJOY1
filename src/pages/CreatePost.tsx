@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Image, Film, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, Image, Film, X, Loader2, Download, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -11,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const CreatePost: React.FC = () => {
   const { userProfile } = useAuth();
@@ -26,6 +28,7 @@ const CreatePost: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [postType, setPostType] = useState<'post' | 'reel'>('post');
+  const [allowDownload, setAllowDownload] = useState(true);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -75,6 +78,7 @@ const CreatePost: React.FC = () => {
         likes: [],
         comments: 0,
         saves: [],
+        allowDownload,
         createdAt: serverTimestamp(),
         ...(postType === 'reel' && { song }),
       };
@@ -235,6 +239,33 @@ const CreatePost: React.FC = () => {
                 placeholder="Add a song name (optional)"
               />
             )}
+
+            {/* Download Permission Toggle */}
+            <div className="flex items-center justify-between p-4 bg-secondary/50 rounded-xl">
+              <div className="flex items-center gap-3">
+                {allowDownload ? (
+                  <Download className="w-5 h-5 text-primary" />
+                ) : (
+                  <Lock className="w-5 h-5 text-muted-foreground" />
+                )}
+                <div>
+                  <Label htmlFor="allow-download" className="font-medium text-sm cursor-pointer">
+                    Allow Download
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {allowDownload 
+                      ? 'Others can download this content' 
+                      : 'Download disabled for privacy'
+                    }
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="allow-download"
+                checked={allowDownload}
+                onCheckedChange={setAllowDownload}
+              />
+            </div>
           </motion.div>
         )}
       </div>
