@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import MusicSelector from './MusicSelector';
+import type { MusicTrack } from '@/lib/musicData';
 
 interface StoryUploadDialogProps {
   open: boolean;
@@ -16,13 +17,6 @@ interface StoryUploadDialogProps {
 }
 
 type StoryVisibility = 'followers' | 'following' | 'both';
-
-interface MusicTrack {
-  id: string;
-  title: string;
-  artist: string;
-  duration: string;
-}
 
 const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) => {
   const { userProfile } = useAuth();
@@ -69,6 +63,7 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
         music: selectedMusic ? {
           title: selectedMusic.title,
           artist: selectedMusic.artist,
+          previewUrl: selectedMusic.previewUrl,
         } : null,
         createdAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),

@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import ReelItem from '@/components/reels/ReelItem';
 
 interface Reel {
@@ -19,71 +21,188 @@ interface Reel {
 }
 
 const Reels: React.FC = () => {
+  const { userProfile } = useAuth();
+  const [searchParams] = useSearchParams();
+  const targetReelId = searchParams.get('id');
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [privateUsers, setPrivateUsers] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isScrollingRef = useRef(false);
+  const isAnimatingRef = useRef(false);
+  const touchStartYRef = useRef<number>(0);
+  const touchStartTimeRef = useRef<number>(0);
+  const privateUserCacheRef = useRef<Map<string, boolean>>(new Map());
+  const hasScrolledToTargetRef = useRef(false);
 
   useEffect(() => {
+    if (!userProfile) return;
+
     const reelsQuery = query(
       collection(db, 'reels'),
       orderBy('createdAt', 'desc'),
       limit(50)
     );
 
-    const unsubscribe = onSnapshot(reelsQuery, (snapshot) => {
-      const fetchedReels = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
+    const unsubscribe = onSnapshot(reelsQuery, async (snapshot) => {
+      const fetchedReels = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate() || new Date(),
       })) as Reel[];
+
+      // Check privacy status
+      const uniqueUserIds = [...new Set(fetchedReels.map(r => r.userId))];
+      const unknownUserIds = uniqueUserIds.filter(id =>
+        id !== userProfile.uid && !privateUserCacheRef.current.has(id)
+      );
+
+      if (unknownUserIds.length > 0) {
+        const userDocs = await Promise.all(
+          unknownUserIds.map(uid => getDoc(doc(db, 'users', uid)))
+        );
+        userDocs.forEach((userDoc, i) => {
+          if (userDoc.exists()) {
+            privateUserCacheRef.current.set(unknownUserIds[i], userDoc.data().isPrivate === true);
+          }
+        });
+      }
+
+      const following = new Set(userProfile.following || []);
+      const privates = new Set<string>();
+      privateUserCacheRef.current.forEach((isPrivate, uid) => {
+        if (isPrivate && !following.has(uid) && uid !== userProfile.uid) {
+          privates.add(uid);
+        }
+      });
+      setPrivateUsers(privates);
       
       setReels(fetchedReels);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [userProfile]);
 
-  const handleScroll = useCallback(() => {
-    if (!containerRef.current) return;
-    
-    // Clear previous timeout
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
-    
-    isScrollingRef.current = true;
+  // Filter out private users' reels
+  const visibleReels = useMemo(() => {
+    return reels.filter(reel =>
+      reel.userId === userProfile?.uid || !privateUsers.has(reel.userId)
+    );
+  }, [reels, privateUsers, userProfile?.uid]);
 
-    // Debounce: wait for scroll to settle before updating index
-    scrollTimeoutRef.current = setTimeout(() => {
-      if (!containerRef.current) return;
-      const scrollTop = containerRef.current.scrollTop;
-      const height = containerRef.current.clientHeight;
-      const index = Math.round(scrollTop / height);
-      const clampedIndex = Math.max(0, Math.min(index, reels.length - 1));
-      
-      // Snap to the nearest reel
-      containerRef.current.scrollTo({
-        top: clampedIndex * height,
-        behavior: 'smooth'
-      });
-      
-      setCurrentIndex(clampedIndex);
-      isScrollingRef.current = false;
-    }, 150);
-  }, [reels.length]);
-
-  // Cleanup timeout on unmount
+  // Auto-scroll to target reel from URL ?id= parameter
   useEffect(() => {
-    return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
+    if (!targetReelId || hasScrolledToTargetRef.current || visibleReels.length === 0) return;
+    const targetIndex = visibleReels.findIndex(r => r.id === targetReelId);
+    if (targetIndex >= 0) {
+      setCurrentIndex(targetIndex);
+      hasScrolledToTargetRef.current = true;
+      // Scroll to position after a tick to let the DOM render
+      setTimeout(() => {
+        if (containerRef.current) {
+          const height = containerRef.current.clientHeight;
+          containerRef.current.scrollTo({ top: targetIndex * height, behavior: 'auto' });
+        }
+      }, 50);
+    }
+  }, [targetReelId, visibleReels]);
+
+  const scrollToIndex = useCallback((index: number) => {
+    if (!containerRef.current || isAnimatingRef.current) return;
+    const clampedIndex = Math.max(0, Math.min(index, visibleReels.length - 1));
+    if (clampedIndex === currentIndex && index !== 0) return;
+    
+    isAnimatingRef.current = true;
+    const height = containerRef.current.clientHeight;
+    
+    containerRef.current.scrollTo({
+      top: clampedIndex * height,
+      behavior: 'smooth',
+    });
+
+    setCurrentIndex(clampedIndex);
+
+    // Unlock after the smooth scroll animation completes
+    setTimeout(() => {
+      isAnimatingRef.current = false;
+    }, 600);
+  }, [currentIndex, visibleReels.length]);
+
+  // Handle wheel events (desktop) — one scroll = one reel
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (isAnimatingRef.current) return;
+
+      if (e.deltaY > 30) {
+        scrollToIndex(currentIndex + 1);
+      } else if (e.deltaY < -30) {
+        scrollToIndex(currentIndex - 1);
       }
     };
-  }, []);
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [currentIndex, scrollToIndex]);
+
+  // Handle touch events (mobile) — swipe up/down = one reel
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartYRef.current = e.touches[0].clientY;
+      touchStartTimeRef.current = Date.now();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (isAnimatingRef.current) return;
+      
+      const deltaY = touchStartYRef.current - e.changedTouches[0].clientY;
+      const deltaTime = Date.now() - touchStartTimeRef.current;
+      const velocity = Math.abs(deltaY) / deltaTime;
+      
+      // Require minimum swipe distance (50px) or fast swipe velocity
+      const minSwipe = 50;
+      if (Math.abs(deltaY) > minSwipe || velocity > 0.3) {
+        if (deltaY > 0) {
+          scrollToIndex(currentIndex + 1);
+        } else {
+          scrollToIndex(currentIndex - 1);
+        }
+      } else {
+        // Snap back to current position
+        scrollToIndex(currentIndex);
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [currentIndex, scrollToIndex]);
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        scrollToIndex(currentIndex + 1);
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        scrollToIndex(currentIndex - 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentIndex, scrollToIndex]);
 
   if (loading) {
     return (
@@ -93,7 +212,7 @@ const Reels: React.FC = () => {
     );
   }
 
-  if (reels.length === 0) {
+  if (visibleReels.length === 0) {
     return (
       <div className="h-screen bg-foreground flex flex-col items-center justify-center text-background px-4">
         <motion.div
@@ -116,10 +235,10 @@ const Reels: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      onScroll={handleScroll}
       className="reel-container scrollbar-hide"
+      style={{ touchAction: 'none' }}
     >
-      {reels.map((reel, index) => (
+      {visibleReels.map((reel, index) => (
         <ReelItem
           key={reel.id}
           reel={reel}

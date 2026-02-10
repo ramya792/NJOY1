@@ -213,9 +213,9 @@ const Messages: React.FC = () => {
     );
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-40 glass border-b border-border">
+      <header className="sticky top-0 z-40 glass border-b border-border flex-shrink-0">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
           <h1 className="font-display font-semibold text-lg">
             {userProfile?.username || 'Messages'}
@@ -303,7 +303,7 @@ const Messages: React.FC = () => {
       )}
 
       {/* Messages List */}
-      <div className="max-w-lg mx-auto">
+      <div className="flex-1 overflow-y-auto max-w-lg mx-auto w-full">
         {loading ? (
           <div className="p-4 space-y-4">
             {[1, 2, 3, 4, 5].map((i) => (

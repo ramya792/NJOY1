@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Search as SearchIcon, X, Users, Music, Hash, Film, Loader2, Youtube, Play, Heart } from 'lucide-react';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import UserSearchResult from './UserSearchResult';
 import ReelSearchResult from './ReelSearchResult';
 import MusicSearch from './MusicSearch';
 import { useNavigate } from 'react-router-dom';
+import PostCard from '@/components/home/PostCard';
 
 interface SearchResult {
   type: 'user' | 'reel' | 'hashtag' | 'music';
@@ -28,6 +30,7 @@ interface ExploreFeedItem {
 }
 
 const SearchTabs: React.FC = () => {
+  const { userProfile } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
@@ -39,10 +42,43 @@ const SearchTabs: React.FC = () => {
   // Explore feed state
   const [exploreFeed, setExploreFeed] = useState<ExploreFeedItem[]>([]);
   const [exploreLoading, setExploreLoading] = useState(true);
+  const [selectedPost, setSelectedPost] = useState<any>(null);
+
+  // Private user filtering
+  const [privateUsers, setPrivateUsers] = useState<Set<string>>(new Set());
+  const privateUserCacheRef = React.useRef<Map<string, boolean>>(new Map());
 
   // Extract unique hashtags and songs from reels
   const [trendingHashtags, setTrendingHashtags] = useState<string[]>([]);
   const [trendingSongs, setTrendingSongs] = useState<{ song: string; count: number }[]>([]);
+
+  // Helper to check and cache private users
+  const checkPrivateUsers = async (userIds: string[]) => {
+    if (!userProfile) return;
+    const following = new Set(userProfile.following || []);
+    const unknownUserIds = userIds.filter(id =>
+      id !== userProfile.uid && !privateUserCacheRef.current.has(id)
+    );
+
+    if (unknownUserIds.length > 0) {
+      const userDocs = await Promise.all(
+        unknownUserIds.map(uid => getDoc(doc(db, 'users', uid)))
+      );
+      userDocs.forEach((userDoc, i) => {
+        if (userDoc.exists()) {
+          privateUserCacheRef.current.set(unknownUserIds[i], userDoc.data().isPrivate === true);
+        }
+      });
+    }
+
+    const privates = new Set<string>();
+    privateUserCacheRef.current.forEach((isPrivate, uid) => {
+      if (isPrivate && !following.has(uid) && uid !== userProfile.uid) {
+        privates.add(uid);
+      }
+    });
+    setPrivateUsers(privates);
+  };
 
   useEffect(() => {
     const fetchTrending = async () => {
@@ -151,6 +187,10 @@ const SearchTabs: React.FC = () => {
         }
 
         setExploreFeed(feedItems);
+
+        // Check privacy for all unique user IDs
+        const uniqueUserIds = [...new Set(feedItems.map(item => item.userId))];
+        await checkPrivateUsers(uniqueUserIds);
       } catch (error) {
         console.error('Error fetching explore feed:', error);
       } finally {
@@ -160,6 +200,13 @@ const SearchTabs: React.FC = () => {
 
     fetchExploreFeed();
   }, []);
+
+  // Filter out private users' content from explore feed
+  const visibleExploreFeed = useMemo(() => {
+    return exploreFeed.filter(item =>
+      item.userId === userProfile?.uid || !privateUsers.has(item.userId)
+    );
+  }, [exploreFeed, privateUsers, userProfile?.uid]);
 
   useEffect(() => {
     const searchTimeout = setTimeout(async () => {
@@ -275,11 +322,25 @@ const SearchTabs: React.FC = () => {
   };
 
   const filteredResults = results.filter(result => {
-    if (activeTab === 'all') return true;
-    if (activeTab === 'users') return result.type === 'user';
-    if (activeTab === 'reels') return result.type === 'reel';
-    if (activeTab === 'hashtags') return result.type === 'hashtag';
-    if (activeTab === 'music') return result.type === 'music';
+    // Filter by tab type
+    if (activeTab === 'users' && result.type !== 'user') return false;
+    if (activeTab === 'reels' && result.type !== 'reel') return false;
+    if (activeTab === 'hashtags' && result.type !== 'hashtag') return false;
+    if (activeTab === 'music' && result.type !== 'music') return false;
+
+    // Filter out private users' content (except users themselves - they appear but profile is locked)
+    if (result.type !== 'user' && result.data?.userId) {
+      if (privateUsers.has(result.data.userId)) return false;
+    }
+    // For user search results, filter out private users who we don't follow
+    if (result.type === 'user' && result.data?.isPrivate) {
+      const following = new Set(userProfile?.following || []);
+      if (!following.has(result.id) && result.id !== userProfile?.uid) {
+        // Still show the user in search, but their content is hidden
+        // (UserProfile page handles locked state)
+      }
+    }
+
     return true;
   });
 
@@ -513,7 +574,7 @@ const SearchTabs: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-0.5">
-              {exploreFeed.map((item, index) => {
+              {visibleExploreFeed.map((item, index) => {
                 // Every 10th item starting from 0 gets the large tile (2x2)
                 const isLargeTile = index % 10 === 0;
 
@@ -525,9 +586,10 @@ const SearchTabs: React.FC = () => {
                     transition={{ delay: Math.min(index * 0.02, 0.5) }}
                     onClick={() => {
                       if (item.source === 'reel') {
-                        navigate('/reels');
+                        navigate(`/reels?id=${item.id}`);
                       } else {
-                        navigate(`/user/${item.userId}`);
+                        // Navigate to home with post ID to highlight
+                        navigate(`/?post=${item.id}`);
                       }
                     }}
                     className={`relative group overflow-hidden bg-secondary ${

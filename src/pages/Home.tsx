@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { collection, query, limit, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, limit, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
@@ -24,8 +25,33 @@ interface Post {
 
 const Home: React.FC = () => {
   const { userProfile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [privateUsers, setPrivateUsers] = useState<Set<string>>(new Set());
+  const hasScrolledToPostRef = useRef(false);
+
+  // Cache of private user IDs to filter posts
+  const privateUserCacheRef = React.useRef<Map<string, boolean>>(new Map());
+
+  const targetPostId = searchParams.get('post');
+
+  // Scroll to target post when loaded
+  useEffect(() => {
+    if (!targetPostId || loading || hasScrolledToPostRef.current) return;
+    hasScrolledToPostRef.current = true;
+    // Small delay to let DOM render
+    setTimeout(() => {
+      const el = document.getElementById(`post-${targetPostId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-primary', 'rounded-lg');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-primary', 'rounded-lg'), 2000);
+      }
+      // Clean the URL param after scrolling
+      setSearchParams({}, { replace: true });
+    }, 300);
+  }, [targetPostId, loading, setSearchParams]);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -37,13 +63,41 @@ const Home: React.FC = () => {
       limit(50)
     );
 
-    const unsubscribe = onSnapshot(postsQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(postsQuery, async (snapshot) => {
       const fetchedPosts = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
         createdAt: doc.data().createdAt?.toDate() || new Date(),
       })) as Post[];
-      
+
+      // Check which post authors are private (batch unique userIds)
+      const uniqueUserIds = [...new Set(fetchedPosts.map(p => p.userId))];
+      const unknownUserIds = uniqueUserIds.filter(id => 
+        id !== userProfile.uid && !privateUserCacheRef.current.has(id)
+      );
+
+      // Fetch privacy status for unknown users
+      if (unknownUserIds.length > 0) {
+        const userDocs = await Promise.all(
+          unknownUserIds.map(uid => getDoc(doc(db, 'users', uid)))
+        );
+        userDocs.forEach((userDoc, i) => {
+          if (userDoc.exists()) {
+            privateUserCacheRef.current.set(unknownUserIds[i], userDoc.data().isPrivate === true);
+          }
+        });
+      }
+
+      // Build set of private user IDs the current user does NOT follow
+      const following = new Set(userProfile.following || []);
+      const privates = new Set<string>();
+      privateUserCacheRef.current.forEach((isPrivate, uid) => {
+        if (isPrivate && !following.has(uid) && uid !== userProfile.uid) {
+          privates.add(uid);
+        }
+      });
+      setPrivateUsers(privates);
+
       setPosts(fetchedPosts);
       setLoading(false);
     }, (error) => {
@@ -53,6 +107,13 @@ const Home: React.FC = () => {
 
     return () => unsubscribe();
   }, [userProfile]);
+
+  // Filter out private users' posts
+  const visiblePosts = useMemo(() => {
+    return posts.filter(post => 
+      post.userId === userProfile?.uid || !privateUsers.has(post.userId)
+    );
+  }, [posts, privateUsers, userProfile?.uid]);
 
   const handlePostDelete = useCallback((postId: string) => {
     setPosts(prev => prev.filter(p => p.id !== postId));
@@ -73,7 +134,7 @@ const Home: React.FC = () => {
               <PostSkeleton key={i} />
             ))}
           </div>
-        ) : posts.length === 0 ? (
+        ) : visiblePosts.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -91,9 +152,10 @@ const Home: React.FC = () => {
           </motion.div>
         ) : (
           <div className="space-y-4 pb-4">
-            {posts.map((post, index) => (
+            {visiblePosts.map((post, index) => (
               <motion.div
                 key={post.id}
+                id={`post-${post.id}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}

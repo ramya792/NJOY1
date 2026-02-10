@@ -244,18 +244,19 @@
   
   /* Reel Container */
   .reel-container {
-    scroll-snap-type: y mandatory;
-    scroll-behavior: smooth;
     height: 100vh;
     height: 100dvh;
-    overflow-y: scroll;
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+    overscroll-behavior-y: none;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .reel-container::-webkit-scrollbar {
+    display: none;
   }
   
   .reel-item {
-    scroll-snap-align: start;
-    scroll-snap-stop: always;
     height: 100vh;
     height: 100dvh;
   }

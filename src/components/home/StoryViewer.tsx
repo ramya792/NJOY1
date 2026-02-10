@@ -9,6 +9,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
+import { fetchPreviewUrl } from '@/lib/musicData';
 
 interface Story {
   id: string;
@@ -24,13 +25,18 @@ interface Story {
   music?: {
     title: string;
     artist: string;
+    previewUrl?: string;
   } | null;
 }
 
 interface ViewerInfo {
   uid: string;
   username: string;
+  displayName?: string;
   photoURL: string;
+  isPrivate?: boolean;
+  followers?: string[];
+  following?: string[];
 }
 
 interface StoryViewerProps {
@@ -56,7 +62,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionResults, setMentionResults] = useState<ViewerInfo[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
+  const [showLikers, setShowLikers] = useState(false);
+  const [likers, setLikers] = useState<ViewerInfo[]>([]);
+  const [loadingLikers, setLoadingLikers] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentStory = localStories[currentIndex];
   const isOwnStory = currentStory?.userId === userProfile?.uid;
 
@@ -81,7 +91,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   }, [currentIndex, currentStory, userProfile]);
 
   useEffect(() => {
-    if (showViewers || showMentionInput) return; // Pause timer when viewing panels
+    if (showViewers || showMentionInput || showLikers) return; // Pause timer when viewing panels
     
     const duration = currentStory?.mediaType === 'video' ? 15000 : 5000;
     const interval = 50;
@@ -103,13 +113,81 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     }, interval);
 
     return () => clearInterval(timer);
-  }, [currentIndex, localStories.length, onClose, currentStory, showViewers, showMentionInput]);
+  }, [currentIndex, localStories.length, onClose, currentStory, showViewers, showMentionInput, showLikers]);
 
   useEffect(() => {
     if (videoRef.current && currentStory?.mediaType === 'video') {
       videoRef.current.play().catch(() => {});
     }
   }, [currentIndex, currentStory]);
+
+  // Play music audio when story has music
+  useEffect(() => {
+    // Stop previous audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    if (currentStory?.music?.previewUrl) {
+      const startAudio = async () => {
+        let url = currentStory.music!.previewUrl!;
+
+        // If the stored URL is a SoundHelix BGM, try to fetch real vocal preview
+        if (url.includes('soundhelix') && currentStory.music!.title) {
+          const vocalUrl = await fetchPreviewUrl(
+            currentStory.music!.title,
+            currentStory.music!.artist || ''
+          );
+          if (vocalUrl) url = vocalUrl;
+        }
+
+        const audio = new Audio(url);
+        audio.volume = 0.4;
+        audio.loop = true;
+        audio.muted = muted;
+        // Use interaction-driven play: retry on failure
+        const tryPlay = () => {
+          audio.play().catch(() => {
+            const retryPlay = () => {
+              audio.play().catch(() => {});
+              document.removeEventListener('click', retryPlay);
+              document.removeEventListener('touchstart', retryPlay);
+            };
+            document.addEventListener('click', retryPlay, { once: true });
+            document.addEventListener('touchstart', retryPlay, { once: true });
+          });
+        };
+        tryPlay();
+        audioRef.current = audio;
+      };
+      startAudio();
+    }
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, [currentIndex, currentStory?.music?.previewUrl]);
+
+  // Mute/unmute music audio when muted state changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = muted;
+    }
+  }, [muted]);
+
+  // Cleanup audio on close
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   // Fetch viewer details when showing viewers panel
   useEffect(() => {
@@ -143,9 +221,42 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     fetchViewers();
   }, [showViewers, currentStory]);
 
-  // Search users for mentions
+  // Fetch liker details when showing likers panel
   useEffect(() => {
-    if (!mentionQuery.trim()) {
+    if (!showLikers || !currentStory?.likes?.length) return;
+
+    const fetchLikers = async () => {
+      setLoadingLikers(true);
+      try {
+        const uniqueLikerIds = [...new Set(currentStory.likes!)].filter(id => id !== currentStory.userId);
+        const likerPromises = uniqueLikerIds.map(async (uid) => {
+          const userDoc = await getDoc(doc(db, 'users', uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            return {
+              uid,
+              username: data.username || 'Unknown',
+              displayName: data.displayName || '',
+              photoURL: data.photoURL || '',
+            };
+          }
+          return null;
+        });
+        const fetchedLikers = await Promise.all(likerPromises);
+        setLikers(fetchedLikers.filter((v): v is ViewerInfo => v !== null));
+      } catch (error) {
+        console.error('Error fetching likers:', error);
+      } finally {
+        setLoadingLikers(false);
+      }
+    };
+
+    fetchLikers();
+  }, [showLikers, currentStory]);
+
+  // Search users for mentions - start from 2 characters, filter by public/following/followers
+  useEffect(() => {
+    if (!mentionQuery.trim() || mentionQuery.trim().length < 2) {
       setMentionResults([]);
       return;
     }
@@ -158,18 +269,30 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
           collection(db, 'users'),
           where('username', '>=', searchLower),
           where('username', '<=', searchLower + '\uf8ff'),
-          limit(10)
+          limit(20)
         );
         const snapshot = await getDocs(usersQuery);
         const results: ViewerInfo[] = [];
-        snapshot.forEach((doc) => {
-          if (doc.id !== userProfile?.uid) {
-            const data = doc.data();
-            results.push({
-              uid: doc.id,
-              username: data.username || '',
-              photoURL: data.photoURL || '',
-            });
+        const currentFollowing = new Set(userProfile?.following || []);
+        const currentFollowers = new Set(userProfile?.followers || []);
+
+        snapshot.forEach((docSnap) => {
+          if (docSnap.id !== userProfile?.uid) {
+            const data = docSnap.data();
+            const isPrivate = data.isPrivate === true;
+            const isFollowedByMe = currentFollowing.has(docSnap.id);
+            const isFollowingMe = currentFollowers.has(docSnap.id);
+
+            // Only allow mentioning: public accounts, or accounts you follow, or accounts that follow you
+            if (!isPrivate || isFollowedByMe || isFollowingMe) {
+              results.push({
+                uid: docSnap.id,
+                username: data.username || '',
+                displayName: data.displayName || '',
+                photoURL: data.photoURL || '',
+                isPrivate,
+              });
+            }
           }
         });
         setMentionResults(results);
@@ -181,7 +304,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     }, 300);
 
     return () => clearTimeout(searchTimeout);
-  }, [mentionQuery, userProfile?.uid]);
+  }, [mentionQuery, userProfile?.uid, userProfile?.following, userProfile?.followers]);
 
   const handleDelete = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -256,6 +379,15 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
 
   const handleMention = useCallback(async (mentionedUser: ViewerInfo) => {
     if (!userProfile || !currentStory) return;
+
+    // Prevent re-mentioning the same user on the same story
+    if (currentStory.mentions?.includes(mentionedUser.uid)) {
+      toast({ title: `@${mentionedUser.username} is already mentioned` });
+      setShowMentionInput(false);
+      setMentionQuery('');
+      setMentionResults([]);
+      return;
+    }
     
     try {
       // Add mention to story
@@ -279,7 +411,79 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         createdAt: serverTimestamp(),
       });
 
+      // Auto-send a chat message to mentioned user
+      try {
+        // Check for existing conversation
+        const convQuery1 = query(
+          collection(db, 'conversations'),
+          where('participants', 'array-contains', userProfile.uid),
+          limit(50)
+        );
+        const convSnapshot = await getDocs(convQuery1);
+        let existingConvId: string | null = null;
+
+        convSnapshot.forEach((convDoc) => {
+          const participants = convDoc.data().participants as string[];
+          if (participants.includes(mentionedUser.uid)) {
+            existingConvId = convDoc.id;
+          }
+        });
+
+        if (existingConvId) {
+          // Add message to existing conversation
+          await addDoc(collection(db, 'conversations', existingConvId, 'messages'), {
+            senderId: userProfile.uid,
+            text: `📸 I mentioned you in my story!`,
+            mediaUrl: currentStory.mediaUrl,
+            mediaType: currentStory.mediaType === 'video' ? 'video' : 'image',
+            createdAt: serverTimestamp(),
+            seen: false,
+          });
+          await updateDoc(doc(db, 'conversations', existingConvId), {
+            lastMessage: '📸 I mentioned you in my story!',
+            lastMessageTime: serverTimestamp(),
+            unreadBy: [mentionedUser.uid],
+          });
+        } else {
+          // Create new conversation and send message
+          const newConvRef = await addDoc(collection(db, 'conversations'), {
+            participants: [userProfile.uid, mentionedUser.uid],
+            participantNames: {
+              [userProfile.uid]: userProfile.username,
+              [mentionedUser.uid]: mentionedUser.username,
+            },
+            participantPhotos: {
+              [userProfile.uid]: userProfile.photoURL || '',
+              [mentionedUser.uid]: mentionedUser.photoURL || '',
+            },
+            lastMessage: '📸 I mentioned you in my story!',
+            lastMessageTime: serverTimestamp(),
+            unreadBy: [mentionedUser.uid],
+            createdAt: serverTimestamp(),
+          });
+          await addDoc(collection(db, 'conversations', newConvRef.id, 'messages'), {
+            senderId: userProfile.uid,
+            text: `📸 I mentioned you in my story!`,
+            mediaUrl: currentStory.mediaUrl,
+            mediaType: currentStory.mediaType === 'video' ? 'video' : 'image',
+            createdAt: serverTimestamp(),
+            seen: false,
+          });
+        }
+      } catch (chatError) {
+        console.error('Error sending mention chat message:', chatError);
+        // Don't fail the mention if chat message fails
+      }
+
       toast({ title: `@${mentionedUser.username} mentioned!` });
+
+      // Update local story state to prevent re-mentioning without Firestore refresh
+      setLocalStories(prev => prev.map(s =>
+        s.id === currentStory.id
+          ? { ...s, mentions: [...(s.mentions || []), mentionedUser.uid] }
+          : s
+      ));
+
       setShowMentionInput(false);
       setMentionQuery('');
       setMentionResults([]);
@@ -295,6 +499,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       setProgress(0);
       setShowViewers(false);
       setShowMentionInput(false);
+      setShowLikers(false);
     } else {
       onClose();
     }
@@ -306,51 +511,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       setProgress(0);
       setShowViewers(false);
       setShowMentionInput(false);
-    }
-  };
-
-  const viewerCount = currentStory?.viewedBy?.filter(id => id !== currentStory.userId).length || 0;
-
-  if (!currentStory) return null;
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            return {
-              uid,
-              username: data.username || 'Unknown',
-              photoURL: data.photoURL || '',
-            };
-          }
-          return null;
-        });
-        const fetchedViewers = await Promise.all(viewerPromises);
-        setViewers(fetchedViewers.filter((v): v is ViewerInfo => v !== null));
-      } catch (error) {
-        console.error('Error fetching viewers:', error);
-      } finally {
-        setLoadingViewers(false);
-      }
-    };
-
-    fetchViewers();
-  }, [showViewers, currentStory]);
-
-  const goNext = () => {
-    if (currentIndex < localStories.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-      setProgress(0);
-      setShowViewers(false);
-      setShowMentionInput(false);
-    } else {
-      onClose();
-    }
-  };
-
-  const goPrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
-      setProgress(0);
-      setShowViewers(false);
-      setShowMentionInput(false);
+      setShowLikers(false);
     }
   };
 
@@ -367,10 +528,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       onClick={() => {
         if (showViewers) setShowViewers(false);
         if (showMentionInput) { setShowMentionInput(false); setMentionQuery(''); setMentionResults([]); }
+        if (showLikers) setShowLikers(false);
       }}
     >
       {/* Progress bars */}
-      <div className="absolute top-4 left-4 right-4 flex gap-1 z-10">
+      <div className="absolute top-4 left-4 right-4 flex gap-1 z-20">
         {localStories.map((_, i) => (
           <div key={i} className="story-progress flex-1">
             <div
@@ -384,7 +546,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       </div>
 
       {/* User info */}
-      <div className="absolute top-10 left-4 right-20 flex items-center gap-3 z-10">
+      <div className="absolute top-10 left-4 right-20 flex items-center gap-3 z-20">
         <div className="w-8 h-8 rounded-full overflow-hidden bg-secondary">
           {currentStory.userPhoto ? (
             <img src={currentStory.userPhoto} alt="" className="w-full h-full object-cover" />
@@ -401,7 +563,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       </div>
 
       {/* Top right controls */}
-      <div className="absolute top-10 right-4 z-10 flex items-center gap-2">
+      <div className="absolute top-10 right-4 z-20 flex items-center gap-2">
         {isOwnStory && (
           <>
             <button
@@ -427,7 +589,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
             </button>
           </>
         )}
-        {currentStory.mediaType === 'video' && (
+        {(currentStory.mediaType === 'video' || currentStory.music) && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -485,7 +647,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
             animate={{ opacity: 1, y: 0 }}
             className="bg-black/40 backdrop-blur-md rounded-full px-4 py-2.5 flex items-center gap-2"
           >
-            <Music className="w-4 h-4 text-white flex-shrink-0" />
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+            >
+              <Music className="w-4 h-4 text-white flex-shrink-0" />
+            </motion.div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">
                 {currentStory.music.title}
@@ -493,6 +660,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
               <p className="text-white/70 text-xs truncate">
                 {currentStory.music.artist}
               </p>
+            </div>
+            {/* Playing bars animation */}
+            <div className="flex items-end gap-0.5 h-4">
+              {[1, 2, 3].map((i) => (
+                <motion.div
+                  key={i}
+                  className="w-0.5 bg-white rounded-full"
+                  animate={{ height: ['4px', '16px', '8px', '14px', '4px'] }}
+                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+                />
+              ))}
             </div>
           </motion.div>
         </div>
@@ -509,15 +687,15 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       )}
 
       {/* Navigation */}
-      {!showViewers && !showMentionInput && (
+      {!showViewers && !showMentionInput && !showLikers && (
         <>
           <button
             onClick={goPrev}
-            className="absolute left-0 top-0 bottom-0 w-1/3 z-10"
+            className="absolute left-0 top-20 bottom-20 w-1/3 z-10"
           />
           <button
             onClick={goNext}
-            className="absolute right-0 top-0 bottom-0 w-2/3 z-10"
+            className="absolute right-0 top-20 bottom-20 w-2/3 z-10"
           />
         </>
       )}
@@ -554,12 +732,21 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
           </motion.button>
         )}
 
-        {/* Like count for own stories */}
+        {/* Like count for own stories - clickable to show who liked */}
         {isOwnStory && likesCount > 0 && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowLikers(!showLikers);
+              setShowViewers(false);
+              setShowMentionInput(false);
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white"
+          >
             <Heart className="w-4 h-4 text-red-500 fill-red-500" />
             <span className="text-sm font-medium">{likesCount}</span>
-          </div>
+          </motion.button>
         )}
       </div>
 
@@ -599,8 +786,10 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
                 <div className="flex justify-center py-8">
                   <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
-              ) : mentionResults.length === 0 && mentionQuery.trim() ? (
-                <p className="text-center text-muted-foreground py-8">No users found</p>
+              ) : mentionQuery.trim().length > 0 && mentionQuery.trim().length < 2 ? (
+                <p className="text-center text-muted-foreground py-8 text-sm">Type at least 2 characters to search</p>
+              ) : mentionResults.length === 0 && mentionQuery.trim().length >= 2 ? (
+                <p className="text-center text-muted-foreground py-8">No users found (only public accounts &amp; followers/following)</p>
               ) : (
                 <div className="p-4 space-y-2">
                   {mentionResults.map((user) => (
@@ -613,7 +802,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
                         <AvatarImage src={user.photoURL} alt={user.username} />
                         <AvatarFallback>{user.username.charAt(0).toUpperCase()}</AvatarFallback>
                       </Avatar>
-                      <span className="font-medium text-sm">@{user.username}</span>
+                      <div className="text-left">
+                        <span className="font-medium text-sm block">@{user.username}</span>
+                        {user.displayName && (
+                          <span className="text-xs text-muted-foreground block">{user.displayName}</span>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -665,6 +859,63 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
                         <AvatarFallback>{viewer.username.charAt(0).toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <span className="font-medium text-sm">{viewer.username}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Likers Panel */}
+      <AnimatePresence>
+        {showLikers && isOwnStory && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="absolute bottom-0 left-0 right-0 z-30 bg-background rounded-t-2xl max-h-[60vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-border">
+              <div className="w-12 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-4" />
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Heart className="w-4 h-4 text-red-500 fill-red-500" />
+                  {likesCount} {likesCount === 1 ? 'like' : 'likes'}
+                </h3>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowLikers(false); }}
+                  className="p-1.5 rounded-full hover:bg-secondary transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            <ScrollArea className="max-h-[calc(60vh-80px)]">
+              {loadingLikers ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : likers.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No likes yet</p>
+              ) : (
+                <div className="p-4 space-y-3">
+                  {likers.map((liker) => (
+                    <div key={liker.uid} className="flex items-center gap-3">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={liker.photoURL} alt={liker.username} />
+                        <AvatarFallback>{liker.username.charAt(0).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <span className="font-medium text-sm block">{liker.username}</span>
+                        {liker.displayName && (
+                          <span className="text-xs text-muted-foreground">{liker.displayName}</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

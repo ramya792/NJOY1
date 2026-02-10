@@ -764,7 +764,7 @@ const ChatRoom: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col bg-background" style={{ height: '100dvh', maxHeight: '100dvh' }}>
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <header className="flex-shrink-0 glass border-b border-border z-10">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">

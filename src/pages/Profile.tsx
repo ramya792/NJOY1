@@ -12,6 +12,7 @@ import PostGrid from '@/components/profile/PostGrid';
 import SavedItemCard from '@/components/profile/SavedItemCard';
 import SavedItemViewer from '@/components/profile/SavedItemViewer';
 import EditProfileModal from '@/components/profile/EditProfileModal';
+import ShareProfileDialog from '@/components/profile/ShareProfileDialog';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -51,6 +52,7 @@ const Profile: React.FC = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [viewingSavedItem, setViewingSavedItem] = useState<SavedItem | null>(null);
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -193,21 +195,7 @@ const Profile: React.FC = () => {
           </h1>
           <div className="flex items-center gap-2">
             <button 
-              onClick={async () => {
-                const shareUrl = `${window.location.origin}/user/${userProfile.uid}`;
-                if (navigator.share) {
-                  try {
-                    await navigator.share({
-                      title: `@${userProfile.username} on NJOY`,
-                      text: `Check out @${userProfile.username}'s profile on NJOY!`,
-                      url: shareUrl,
-                    });
-                  } catch {}
-                } else {
-                  await navigator.clipboard.writeText(shareUrl);
-                  toast({ title: 'Profile link copied!' });
-                }
-              }}
+              onClick={() => setShowShareDialog(true)}
               className="p-2 rounded-full hover:bg-secondary transition-colors"
             >
               <Share2 className="w-5 h-5" />
@@ -352,6 +340,14 @@ const Profile: React.FC = () => {
         item={viewingSavedItem}
         isOpen={!!viewingSavedItem}
         onClose={() => setViewingSavedItem(null)}
+      />
+
+      {/* Share Profile Dialog */}
+      <ShareProfileDialog
+        isOpen={showShareDialog}
+        onClose={() => setShowShareDialog(false)}
+        profileUserId={userProfile.uid}
+        profileUsername={userProfile.username}
       />
     </div>
   );

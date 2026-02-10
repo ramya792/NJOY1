@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import PostGrid from '@/components/profile/PostGrid';
 import FollowersModal from '@/components/profile/FollowersModal';
+import ShareProfileDialog from '@/components/profile/ShareProfileDialog';
 import { useToast } from '@/hooks/use-toast';
 import {
   DropdownMenu,
@@ -59,6 +60,7 @@ const UserProfile: React.FC = () => {
   const [isRestricted, setIsRestricted] = useState(false);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   // Check if user is blocked/restricted
   useEffect(() => {
@@ -356,21 +358,7 @@ const UserProfile: React.FC = () => {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={async () => {
-                const shareUrl = `${window.location.origin}/user/${userId}`;
-                if (navigator.share) {
-                  try {
-                    await navigator.share({
-                      title: `@${profile.username} on NJOY`,
-                      text: `Check out @${profile.username}'s profile on NJOY!`,
-                      url: shareUrl,
-                    });
-                  } catch {}
-                } else {
-                  await navigator.clipboard.writeText(shareUrl);
-                  toast({ title: 'Profile link copied!' });
-                }
-              }}>
+              <DropdownMenuItem onClick={() => setShowShareDialog(true)}>
                 <Share2 className="w-4 h-4 mr-2" />
                 Share Profile
               </DropdownMenuItem>
@@ -508,6 +496,14 @@ const UserProfile: React.FC = () => {
         userIds={uniqueFollowing}
         title={`${profile.username}'s Following`}
         isOwnProfile={false}
+      />
+
+      {/* Share Profile Dialog */}
+      <ShareProfileDialog
+        isOpen={showShareDialog}
+        onClose={() => setShowShareDialog(false)}
+        profileUserId={profile.uid}
+        profileUsername={profile.username}
       />
     </div>
   );
