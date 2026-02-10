@@ -33,15 +33,22 @@ interface Conversation {
 interface MessageListItemProps {
   conversation: Conversation;
   onDelete?: (conversationId: string) => void;
+  onHide?: (conversationId: string) => void;
 }
 
-const MessageListItem: React.FC<MessageListItemProps> = ({ conversation, onDelete }) => {
+const MessageListItem: React.FC<MessageListItemProps> = ({ conversation, onDelete, onHide }) => {
   const navigate = useNavigate();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showHideDialog, setShowHideDialog] = useState(false);
 
   const handleDelete = () => {
     onDelete?.(conversation.id);
     setShowDeleteDialog(false);
+  };
+
+  const handleHide = () => {
+    onHide?.(conversation.id);
+    setShowHideDialog(false);
   };
 
   return (
@@ -90,6 +97,11 @@ const MessageListItem: React.FC<MessageListItemProps> = ({ conversation, onDelet
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setShowHideDialog(true)}>
+              <Archive className="w-4 h-4 mr-2" />
+              Hide conversation
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setShowDeleteDialog(true)} className="text-destructive">
               <Trash2 className="w-4 h-4 mr-2" />
               Delete conversation
@@ -110,6 +122,23 @@ const MessageListItem: React.FC<MessageListItemProps> = ({ conversation, onDelet
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showHideDialog} onOpenChange={setShowHideDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hide conversation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This conversation will be hidden from your messages list. You can view and unhide it from Settings &gt; Hidden Chats.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleHide}>
+              Hide
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -317,9 +317,11 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
               </motion.button>
             )}
           </div>
-          <motion.button whileTap={{ scale: 0.8 }} onClick={handleSave}>
-            <Bookmark className={`w-6 h-6 transition-colors ${saved ? 'text-foreground fill-foreground' : ''}`} />
-          </motion.button>
+          {(post.allowDownload !== false) && (
+            <motion.button whileTap={{ scale: 0.8 }} onClick={handleSave}>
+              <Bookmark className={`w-6 h-6 transition-colors ${saved ? 'text-foreground fill-foreground' : ''}`} />
+            </motion.button>
+          )}
         </div>
 
         <p className="font-semibold text-sm mb-1">{likesCount.toLocaleString()} {likesCount === 1 ? 'like' : 'likes'}</p>

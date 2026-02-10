@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { 
   ArrowLeft, Lock, Bell, Eye, Shield, HelpCircle, 
   LogOut, ChevronRight, Moon, Sun, User, Globe, UserX,
-  Heart, MessageCircle, Loader2, Key, AtSign, Music
+  Heart, MessageCircle, Loader2, Key, AtSign, Music, Archive
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -298,6 +298,12 @@ const Settings: React.FC = () => {
     {
       title: 'Security',
       items: [
+        {
+          icon: <Archive className="w-5 h-5" />,
+          label: 'Hidden Chats',
+          description: 'Manage hidden conversations',
+          action: () => navigate('/settings/hidden-chats'),
+        },
         {
           icon: <Shield className="w-5 h-5" />,
           label: 'Blocked Accounts',

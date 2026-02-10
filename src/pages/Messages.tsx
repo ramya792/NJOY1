@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Edit3, MessageCircle, Search, X, Loader2, UserPlus } from 'lucide-react';
-import { collection, query, where, orderBy, onSnapshot, getDocs, limit, deleteDoc, doc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, getDocs, limit, deleteDoc, doc, writeBatch, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -32,12 +32,31 @@ const Messages: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [hiddenChats, setHiddenChats] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  // Fetch hidden chats from user profile
+  useEffect(() => {
+    if (!userProfile) return;
+    
+    const fetchHiddenChats = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', userProfile.uid));
+        if (userDoc.exists()) {
+          setHiddenChats(userDoc.data().hiddenChats || []);
+        }
+      } catch (error) {
+        console.error('Error fetching hidden chats:', error);
+      }
+    };
+    
+    fetchHiddenChats();
+  }, [userProfile]);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -127,7 +146,33 @@ const Messages: React.FC = () => {
   const handleStartChat = (user: UserResult) => {
     navigate(`/messages/new?userId=${user.uid}`);
   };
-const handleDeleteConversation = async (conversationId: string) => {
+
+  const handleHideConversation = async (conversationId: string) => {
+    if (!userProfile) return;
+    
+    try {
+      const userRef = doc(db, 'users', userProfile.uid);
+      await updateDoc(userRef, {
+        hiddenChats: arrayUnion(conversationId)
+      });
+      
+      setHiddenChats(prev => [...prev, conversationId]);
+      
+      toast({
+        title: 'Conversation hidden',
+        description: 'You can unhide it from Settings > Hidden Chats.',
+      });
+    } catch (error) {
+      console.error('Error hiding conversation:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not hide conversation. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId: string) => {
     try {
       const batch = writeBatch(db);
       
@@ -158,12 +203,14 @@ const handleDeleteConversation = async (conversationId: string) => {
   };
 
   
-  // Filter conversations based on search
-  const filteredConversations = searchQuery.trim() 
-    ? conversations.filter(c => 
-        c.participantName.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : conversations;
+  // Filter conversations based on search and hidden chats
+  const filteredConversations = conversations
+    .filter(c => !hiddenChats.includes(c.id)) // Exclude hidden chats
+    .filter(c => 
+      searchQuery.trim() 
+        ? c.participantName.toLowerCase().includes(searchQuery.toLowerCase())
+        : true
+    );
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -298,7 +345,11 @@ const handleDeleteConversation = async (conversationId: string) => {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.05 }}
               >
-                <MessageListItem conversation={conversation} />
+                <MessageListItem 
+                  conversation={conversation} 
+                  onDelete={handleDeleteConversation}
+                  onHide={handleHideConversation}
+                />
               </motion.div>
             ))}
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2 } from 'lucide-react';
+import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2, Loader2, Music } from 'lucide-react';
 import { doc, updateDoc, arrayUnion, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -18,6 +18,10 @@ interface Story {
   mediaType: 'image' | 'video';
   createdAt: Date;
   viewedBy: string[];
+  music?: {
+    title: string;
+    artist: string;
+  } | null;
 }
 
 interface ViewerInfo {
@@ -183,22 +187,29 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose, onStoryDele
             onClick={async (e) => {
               e.stopPropagation();
               if (deleting) return;
+              
+              if (!window.confirm('Delete this story?')) return;
+              
               setDeleting(true);
               try {
                 await deleteDoc(doc(db, 'stories', currentStory.id));
-                toast({ title: 'Story deleted' });
-                onStoryDeleted?.(currentStory.id);
-                // If this was the last story, close the viewer
+                toast({ title: 'Story deleted successfully' });
+                
+                // Notify parent component to remove from list
+                if (onStoryDeleted) {
+                  onStoryDeleted(currentStory.id);
+                }
+                
+                // If this was the last story or only story, close the viewer
                 if (stories.length <= 1) {
                   onClose();
+                } else if (currentIndex >= stories.length - 1) {
+                  // If deleting the last story, go to previous
+                  setCurrentIndex(Math.max(0, currentIndex - 1));
+                  setProgress(0);
                 } else {
-                  // Move to next or previous story
-                  if (currentIndex < stories.length - 1) {
-                    setProgress(0);
-                  } else {
-                    setCurrentIndex(prev => Math.max(0, prev - 1));
-                    setProgress(0);
-                  }
+                  // Otherwise stay at current index (which will now show the next story)
+                  setProgress(0);
                 }
               } catch (error) {
                 console.error('Error deleting story:', error);
@@ -207,9 +218,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose, onStoryDele
                 setDeleting(false);
               }
             }}
-            className="p-1.5 rounded-full bg-black/40"
+            className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+            disabled={deleting}
           >
-            <Trash2 className="w-5 h-5 text-white" />
+            {deleting ? (
+              <Loader2 className="w-5 h-5 text-white animate-spin" />
+            ) : (
+              <Trash2 className="w-5 h-5 text-white" />
+            )}
           </button>
         )}
         {currentStory.mediaType === 'video' && (
@@ -261,6 +277,27 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose, onStoryDele
         </motion.div>
       </AnimatePresence>
 
+      {/* Music overlay */}
+      {currentStory.music && (
+        <div className="absolute bottom-24 left-4 right-4 z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-black/40 backdrop-blur-md rounded-full px-4 py-2.5 flex items-center gap-2"
+          >
+            <Music className="w-4 h-4 text-white flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-medium truncate">
+                {currentStory.music.title}
+              </p>
+              <p className="text-white/70 text-xs truncate">
+                {currentStory.music.artist}
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Navigation */}
       {!showViewers && (
         <>
@@ -302,9 +339,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories, onClose, onStoryDele
           >
             <div className="p-4 border-b border-border">
               <div className="w-12 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-4" />
-              <h3 className="text-center font-semibold">
-                {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">
+                  {viewerCount} {viewerCount === 1 ? 'viewer' : 'viewers'}
+                </h3>
+                <button 
+                  onClick={() => setShowViewers(false)}
+                  className="p-1.5 rounded-full hover:bg-secondary transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             
             <ScrollArea className="max-h-[calc(60vh-80px)]">

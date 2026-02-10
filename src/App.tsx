@@ -20,6 +20,7 @@ import Settings from "@/pages/Settings";
 import MessageRequests from "@/pages/MessageRequests";
 import BlockedAccounts from "@/pages/BlockedAccounts";
 import RestrictedAccounts from "@/pages/RestrictedAccounts";
+import HiddenChats from "@/pages/HiddenChats";
 import HelpCenter from "@/pages/HelpCenter";
 import TermsOfService from "@/pages/TermsOfService";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
@@ -69,6 +70,7 @@ const AppRoutes = () => (
       <Route path="/messages/:conversationId" element={<ChatRoom />} />
       <Route path="/profile" element={<Profile />} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/settings/hidden-chats" element={<HiddenChats />} />
       <Route path="/settings/blocked" element={<BlockedAccounts />} />
       <Route path="/settings/restricted" element={<RestrictedAccounts />} />
       <Route path="/settings/help" element={<HelpCenter />} />

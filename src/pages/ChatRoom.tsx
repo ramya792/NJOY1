@@ -50,8 +50,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import Picker from '@emoji-mart/react';
-import data from '@emoji-mart/data';
+import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { CallService } from '@/lib/callService';
 
 interface Message {
@@ -123,6 +122,22 @@ const ChatRoom: React.FC = () => {
     }
     return () => clearInterval(interval);
   }, [isRecording]);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // Check if click is outside emoji picker
+      if (!target.closest('.emoji-picker-react') && !target.closest('[data-emoji-button]')) {
+        setShowEmojiPicker(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showEmojiPicker]);
 
   // Scroll to bottom
   const scrollToBottom = () => {
@@ -457,8 +472,9 @@ const ChatRoom: React.FC = () => {
     }
   };
 
-  const handleEmojiSelect = (emoji: { native: string }) => {
-    setNewMessage((prev) => prev + emoji.native);
+  const handleEmojiSelect = (emojiData: EmojiClickData) => {
+    setNewMessage((prev) => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
   };
 
   const handleClearChat = async () => {
@@ -981,6 +997,7 @@ const ChatRoom: React.FC = () => {
               <button 
                 onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                 className="absolute right-3 top-1/2 -translate-y-1/2"
+                data-emoji-button
               >
                 <Smile className="w-5 h-5 text-muted-foreground" />
               </button>
@@ -991,19 +1008,16 @@ const ChatRoom: React.FC = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 10 }}
-                    className="absolute bottom-12 right-0 z-50 shadow-2xl rounded-lg overflow-hidden"
+                    className="absolute bottom-14 right-0 z-50"
                   >
-                    <Picker 
-                      data={data} 
-                      onEmojiSelect={handleEmojiSelect}
-                      theme={document.documentElement.classList.contains('dark') ? 'dark' : 'light'}
-                      previewPosition="none"
-                      skinTonePosition="none"
-                      searchPosition="sticky"
-                      maxFrequentRows={2}
-                      perLine={8}
-                      navPosition="bottom"
-                      onClickOutside={() => setShowEmojiPicker(false)}
+                    <EmojiPicker 
+                      onEmojiClick={handleEmojiSelect}
+                      theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                      width={320}
+                      height={400}
+                      previewConfig={{ showPreview: false }}
+                      searchPlaceHolder="Search emoji..."
+                      skinTonesDisabled
                     />
                   </motion.div>
                 )}

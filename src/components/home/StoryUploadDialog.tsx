@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Film, X, Loader2, Users, UserCheck, UsersRound } from 'lucide-react';
+import { Camera, Film, X, Loader2, Users, UserCheck, UsersRound, Music } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +8,7 @@ import { uploadToCloudinary } from '@/lib/cloudinary';
 import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import MusicSelector from './MusicSelector';
 
 interface StoryUploadDialogProps {
   open: boolean;
@@ -15,6 +16,13 @@ interface StoryUploadDialogProps {
 }
 
 type StoryVisibility = 'followers' | 'following' | 'both';
+
+interface MusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  duration: string;
+}
 
 const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) => {
   const { userProfile } = useAuth();
@@ -24,7 +32,9 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
   const [uploadProgress, setUploadProgress] = useState(0);
   const [visibility, setVisibility] = useState<StoryVisibility>('both');
   const [showVisibilityOptions, setShowVisibilityOptions] = useState(false);
+  const [showMusicSelector, setShowMusicSelector] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ file: File; type: 'image' | 'video' } | null>(null);
+  const [selectedMusic, setSelectedMusic] = useState<MusicTrack | null>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -32,7 +42,7 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
 
     const type = file.type.startsWith('video/') ? 'video' : 'image';
     setPendingFile({ file, type });
-    setShowVisibilityOptions(true);
+    // Don't go directly to visibility options, let user add music first
   };
 
   const handleUploadStory = async () => {
@@ -56,6 +66,10 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
         mediaType: pendingFile.type,
         viewedBy: [],
         visibility, // 'followers', 'following', or 'both'
+        music: selectedMusic ? {
+          title: selectedMusic.title,
+          artist: selectedMusic.artist,
+        } : null,
         createdAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
       });
@@ -66,6 +80,7 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
       });
 
       setPendingFile(null);
+      setSelectedMusic(null);
       setVisibility('both');
       onClose();
     } catch (error) {
@@ -91,6 +106,8 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
   const handleClose = () => {
     setPendingFile(null);
     setShowVisibilityOptions(false);
+    setShowMusicSelector(false);
+    setSelectedMusic(null);
     setVisibility('both');
     onClose();
   };
@@ -117,7 +134,11 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
           >
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-display font-semibold text-lg">
-                {showVisibilityOptions ? 'Who can see your story?' : 'Add to your story'}
+                {showVisibilityOptions 
+                  ? 'Who can see your story?' 
+                  : pendingFile 
+                    ? 'Customize your story' 
+                    : 'Add to your story'}
               </h3>
               <button onClick={handleClose} className="p-1">
                 <X className="w-5 h-5" />
@@ -188,7 +209,6 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
                   <button
                     onClick={() => {
                       setShowVisibilityOptions(false);
-                      setPendingFile(null);
                     }}
                     className="flex-1 py-3 px-4 rounded-xl bg-secondary font-medium"
                   >
@@ -199,6 +219,75 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
                     className="flex-1 py-3 px-4 rounded-xl bg-primary text-primary-foreground font-medium"
                   >
                     Share Story
+                  </button>
+                </div>
+              </div>
+            ) : pendingFile ? (
+              <div className="space-y-4">
+                {/* File preview */}
+                <div className="aspect-[9/16] bg-secondary rounded-xl overflow-hidden relative">
+                  {pendingFile.type === 'image' ? (
+                    <img 
+                      src={URL.createObjectURL(pendingFile.file)} 
+                      alt="Preview" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <video 
+                      src={URL.createObjectURL(pendingFile.file)} 
+                      className="w-full h-full object-cover"
+                      controls
+                    />
+                  )}
+                  
+                  {/* Music overlay if selected */}
+                  {selectedMusic && (
+                    <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-sm rounded-lg p-3">
+                      <div className="flex items-center gap-2">
+                        <Music className="w-4 h-4 text-white" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white text-sm font-medium truncate">{selectedMusic.title}</p>
+                          <p className="text-white/70 text-xs truncate">{selectedMusic.artist}</p>
+                        </div>
+                        <button 
+                          onClick={() => setSelectedMusic(null)}
+                          className="p-1 hover:bg-white/20 rounded"
+                        >
+                          <X className="w-4 h-4 text-white" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Add music button */}
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowMusicSelector(true)}
+                  className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-secondary hover:bg-accent transition-colors"
+                >
+                  <Music className="w-5 h-5 text-primary" />
+                  <span className="font-medium">
+                    {selectedMusic ? 'Change Music' : 'Add Music'}
+                  </span>
+                </motion.button>
+                
+                {/* Action buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setPendingFile(null);
+                      setSelectedMusic(null);
+                    }}
+                    className="flex-1 py-3 px-4 rounded-xl bg-secondary font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setShowVisibilityOptions(true)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-primary text-primary-foreground font-medium"
+                  >
+                    Next
                   </button>
                 </div>
               </div>
@@ -235,6 +324,14 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
               onChange={handleFileSelect}
             />
           </motion.div>
+          
+          {/* Music Selector */}
+          <MusicSelector
+            open={showMusicSelector}
+            onClose={() => setShowMusicSelector(false)}
+            onSelect={setSelectedMusic}
+            selectedTrack={selectedMusic}
+          />
         </>
       )}
     </AnimatePresence>
