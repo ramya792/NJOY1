@@ -120,7 +120,7 @@ const Home: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-full flex flex-col overflow-y-auto bg-background">
       <Header />
       
       {/* Stories */}

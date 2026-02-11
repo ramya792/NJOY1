@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Send, Loader2, Check, Link2 } from 'lucide-react';
+import { X, Search, Send, Loader2, Check, Link2, Share2 } from 'lucide-react';
 import { collection, query, where, orderBy, getDocs, addDoc, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -199,6 +199,23 @@ const ShareProfileDialog: React.FC<ShareProfileDialogProps> = ({
     toast({ title: 'Profile link copied!' });
   };
 
+  const handleExternalShare = async () => {
+    const shareUrl = `${window.location.origin}/user/${profileUserId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `@${profileUsername} on NJOY`,
+          text: `Check out @${profileUsername}'s profile on NJOY!`,
+          url: shareUrl,
+        });
+      } catch (err) {
+        // User cancelled or share failed silently
+      }
+    } else {
+      handleCopyLink();
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -234,12 +251,23 @@ const ShareProfileDialog: React.FC<ShareProfileDialogProps> = ({
             {/* Copy Link */}
             <button
               onClick={handleCopyLink}
-              className="w-full flex items-center gap-3 p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors mb-3"
+              className="w-full flex items-center gap-3 p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors mb-2"
             >
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <Link2 className="w-5 h-5 text-primary" />
               </div>
               <span className="font-medium text-sm">Copy profile link</span>
+            </button>
+
+            {/* External Share */}
+            <button
+              onClick={handleExternalShare}
+              className="w-full flex items-center gap-3 p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors mb-3"
+            >
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Share2 className="w-5 h-5 text-primary" />
+              </div>
+              <span className="font-medium text-sm">Share to other apps</span>
             </button>
 
             {/* Search */}

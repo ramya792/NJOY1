@@ -1,8 +1,8 @@
 import React, { useState, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal, Share2 } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal, Share2, Send, Copy, ExternalLink, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { doc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, serverTimestamp, getDocs, query, orderBy, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, serverTimestamp, getDocs, query, orderBy, deleteDoc, where, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
@@ -25,6 +25,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface Post {
   id: string;
@@ -50,12 +59,19 @@ interface Comment {
   createdAt: Date;
 }
 
+interface UserResult {
+  uid: string;
+  username: string;
+  displayName?: string;
+  photoURL: string;
+}
+
 interface PostCardProps {
   post: Post;
   onDelete?: (postId: string) => void;
 }
 
-const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, ref) => {
+const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, ref) => {
   const { userProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -74,6 +90,11 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
   const [loadingComments, setLoadingComments] = useState(false);
   const [commentsCount, setCommentsCount] = useState(post.comments || 0);
   const [submittingComment, setSubmittingComment] = useState(false);
+  
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareSearchQuery, setShareSearchQuery] = useState('');
+  const [shareSearchResults, setShareSearchResults] = useState<UserResult[]>([]);
+  const [sharingToUser, setSharingToUser] = useState<string | null>(null);
   
   const isOwner = userProfile?.uid === post.userId;
 
@@ -183,7 +204,22 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
   };
 
   const handleShare = async () => {
-    const shareUrl = `${window.location.origin}/user/${post.userId}`;
+    setShowShareDialog(true);
+  };
+  
+  const handleCopyLink = async () => {
+    const shareUrl = `${window.location.origin}/?postId=${post.id}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({ title: 'Link copied to clipboard!' });
+      setShowShareDialog(false);
+    } catch (error) {
+      toast({ title: 'Failed to copy link', variant: 'destructive' });
+    }
+  };
+  
+  const handleExternalShare = async () => {
+    const shareUrl = `${window.location.origin}/?postId=${post.id}`;
     if (navigator.share) {
       try {
         await navigator.share({
@@ -191,12 +227,134 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
           text: post.caption || 'Check out this post on NJOY!',
           url: shareUrl,
         });
-      } catch {}
+        setShowShareDialog(false);
+      } catch (error) {
+        // User cancelled share
+      }
     } else {
-      await navigator.clipboard.writeText(shareUrl);
-      toast({ title: 'Link copied to clipboard!' });
+      toast({ title: 'Share not supported on this device', variant: 'destructive' });
     }
   };
+  
+  const handleShareToUser = async (recipientId: string, recipientUsername: string) => {
+    if (!userProfile || sharingToUser) return;
+    setSharingToUser(recipientId);
+    
+    try {
+      // Find or create conversation
+      const convQuery1 = query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', userProfile.uid),
+        limit(50)
+      );
+      const convSnapshot = await getDocs(convQuery1);
+      let existingConvId: string | null = null;
+
+      convSnapshot.forEach((convDoc) => {
+        const participants = convDoc.data().participants as string[];
+        if (participants.includes(recipientId)) {
+          existingConvId = convDoc.id;
+        }
+      });
+
+      if (existingConvId) {
+        // Add message to existing conversation
+        await addDoc(collection(db, 'conversations', existingConvId, 'messages'), {
+          senderId: userProfile.uid,
+          text: `📎 Shared a post by @${post.username}`,
+          mediaUrl: post.mediaUrl,
+          mediaType: post.mediaType === 'video' ? 'video' : 'image',
+          postId: post.id,
+          createdAt: serverTimestamp(),
+          seen: false,
+        });
+        await updateDoc(doc(db, 'conversations', existingConvId), {
+          lastMessage: `📎 Shared a post`,
+          lastMessageTime: serverTimestamp(),
+          unreadBy: [recipientId],
+        });
+      } else {
+        // Create new conversation
+        const recipientDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', recipientId)));
+        const recipientData = recipientDoc.docs[0]?.data();
+        
+        const newConvRef = await addDoc(collection(db, 'conversations'), {
+          participants: [userProfile.uid, recipientId],
+          participantNames: {
+            [userProfile.uid]: userProfile.username,
+            [recipientId]: recipientUsername,
+          },
+          participantPhotos: {
+            [userProfile.uid]: userProfile.photoURL || '',
+            [recipientId]: recipientData?.photoURL || '',
+          },
+          lastMessage: `📎 Shared a post`,
+          lastMessageTime: serverTimestamp(),
+          unreadBy: [recipientId],
+          createdAt: serverTimestamp(),
+        });
+        
+        await addDoc(collection(db, 'conversations', newConvRef.id, 'messages'), {
+          senderId: userProfile.uid,
+          text: `📎 Shared a post by @${post.username}`,
+          mediaUrl: post.mediaUrl,
+          mediaType: post.mediaType === 'video' ? 'video' : 'image',
+          postId: post.id,
+          createdAt: serverTimestamp(),
+          seen: false,
+        });
+      }
+      
+      toast({ title: `Sent to @${recipientUsername}!` });
+      setShowShareDialog(false);
+      setShareSearchQuery('');
+      setShareSearchResults([]);
+    } catch (error) {
+      console.error('Error sharing post:', error);
+      toast({ title: 'Failed to share', variant: 'destructive' });
+    } finally {
+      setSharingToUser(null);
+    }
+  };
+  
+  // Search users for sharing
+  React.useEffect(() => {
+    if (!shareSearchQuery.trim() || shareSearchQuery.trim().length < 2) {
+      setShareSearchResults([]);
+      return;
+    }
+
+    const searchTimeout = setTimeout(async () => {
+      try {
+        const searchLower = shareSearchQuery.toLowerCase().trim();
+        const usersQuery = query(
+          collection(db, 'users'),
+          where('username', '>=', searchLower),
+          where('username', '<=', searchLower + '\uf8ff'),
+          limit(20)
+        );
+        const snapshot = await getDocs(usersQuery);
+        const results: UserResult[] = [];
+
+        snapshot.forEach((docSnap) => {
+          if (docSnap.id !== userProfile?.uid) {
+            const data = docSnap.data();
+            results.push({
+              uid: docSnap.id,
+              username: data.username || '',
+              displayName: data.displayName || '',
+              photoURL: data.photoURL || '',
+            });
+          }
+        });
+        setShareSearchResults(results);
+      } catch (error) {
+        console.error('Error searching users:', error);
+      }
+    }, 300);
+
+    return () => clearTimeout(searchTimeout);
+  }, [shareSearchQuery, userProfile?.uid]);
 
   const loadComments = async () => {
     setLoadingComments(true);
@@ -440,9 +598,100 @@ const PostCard = forwardRef<HTMLDivElement, PostCardProps>(({ post, onDelete }, 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Share Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Post</DialogTitle>
+            <DialogDescription>
+              Share this post with your friends
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Quick actions */}
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 flex flex-col items-center gap-2 h-auto py-4"
+                onClick={handleCopyLink}
+              >
+                <Copy className="w-5 h-5" />
+                <span className="text-xs">Copy Link</span>
+              </Button>
+              
+              {navigator.share && (
+                <Button
+                  variant="outline"
+                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4"
+                  onClick={handleExternalShare}
+                >
+                  <ExternalLink className="w-5 h-5" />
+                  <span className="text-xs">Share</span>
+                </Button>
+              )}
+            </div>
+            
+            {/* Search and send to users */}
+            <div>
+              <h4 className="font-medium text-sm mb-2">Send in Direct Message</h4>
+              <Input
+                value={shareSearchQuery}
+                onChange={(e) => setShareSearchQuery(e.target.value)}
+                placeholder="Search users..."
+                className="h-10 text-sm"
+              />
+            </div>
+            
+            {shareSearchQuery.trim().length > 0 && (
+              <ScrollArea className="max-h-64">
+                {shareSearchQuery.trim().length < 2 ? (
+                  <p className="text-center text-muted-foreground py-4 text-sm">
+                    Type at least 2 characters
+                  </p>
+                ) : shareSearchResults.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4 text-sm">
+                    No users found
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {shareSearchResults.map((user) => (
+                      <button
+                        key={user.uid}
+                        onClick={() => handleShareToUser(user.uid, user.username)}
+                        disabled={sharingToUser !== null}
+                        className="flex items-center justify-between w-full p-2 hover:bg-secondary rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={user.photoURL} alt={user.username} />
+                            <AvatarFallback>{user.username.charAt(0).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <div className="text-left">
+                            <span className="font-medium text-sm block">@{user.username}</span>
+                            {user.displayName && (
+                              <span className="text-xs text-muted-foreground block">{user.displayName}</span>
+                            )}
+                          </div>
+                        </div>
+                        {sharingToUser === user.uid ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   );
-});
+}));
 
 PostCard.displayName = 'PostCard';
 

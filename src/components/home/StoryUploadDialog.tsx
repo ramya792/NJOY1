@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Film, X, Loader2, Users, UserCheck, UsersRound, Music } from 'lucide-react';
+import { Camera, Film, X, Loader2, Users, UserCheck, UsersRound, Music, Sparkles } from 'lucide-react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import MusicSelector from './MusicSelector';
+import MediaEditor from '@/components/media/MediaEditor';
 import type { MusicTrack } from '@/lib/musicData';
 
 interface StoryUploadDialogProps {
@@ -29,6 +30,8 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
   const [showMusicSelector, setShowMusicSelector] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ file: File; type: 'image' | 'video' } | null>(null);
   const [selectedMusic, setSelectedMusic] = useState<MusicTrack | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
+  const [appliedFilter, setAppliedFilter] = useState('none');
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,7 +105,9 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
     setPendingFile(null);
     setShowVisibilityOptions(false);
     setShowMusicSelector(false);
+    setShowEditor(false);
     setSelectedMusic(null);
+    setAppliedFilter('none');
     setVisibility('both');
     onClose();
   };
@@ -266,6 +271,18 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
                     {selectedMusic ? 'Change Music' : 'Add Music'}
                   </span>
                 </motion.button>
+
+                {/* Edit media button */}
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowEditor(true)}
+                  className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-secondary hover:bg-accent transition-colors"
+                >
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  <span className="font-medium">
+                    {appliedFilter !== 'none' ? 'Edit Again' : 'Edit & Add Filters'}
+                  </span>
+                </motion.button>
                 
                 {/* Action buttons */}
                 <div className="flex gap-3">
@@ -327,6 +344,21 @@ const StoryUploadDialog: React.FC<StoryUploadDialogProps> = ({ open, onClose }) 
             onSelect={setSelectedMusic}
             selectedTrack={selectedMusic}
           />
+
+          {/* Media Editor */}
+          {pendingFile && (
+            <MediaEditor
+              file={pendingFile.file}
+              mediaType={pendingFile.type}
+              onSave={(editedFile, filter) => {
+                setPendingFile({ file: editedFile, type: pendingFile.type });
+                setAppliedFilter(filter);
+                setShowEditor(false);
+              }}
+              onCancel={() => setShowEditor(false)}
+              open={showEditor}
+            />
+          )}
         </>
       )}
     </AnimatePresence>

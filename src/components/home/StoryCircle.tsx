@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 
 interface StoryCircleProps {
   imageUrl: string;
@@ -13,7 +13,7 @@ const sizeClasses = {
   lg: 'w-16 h-16',
 };
 
-const StoryCircle: React.FC<StoryCircleProps> = ({
+const StoryCircle = memo<StoryCircleProps>(({
   imageUrl,
   hasUnviewed = true,
   size = 'md',
@@ -31,6 +31,7 @@ const StoryCircle: React.FC<StoryCircleProps> = ({
               src={imageUrl}
               alt="Story"
               className="w-full h-full object-cover"
+              loading="lazy"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground">
@@ -41,6 +42,8 @@ const StoryCircle: React.FC<StoryCircleProps> = ({
       </div>
     </button>
   );
-};
+});
+
+StoryCircle.displayName = 'StoryCircle';
 
 export default StoryCircle;

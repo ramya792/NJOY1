@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Image, Film, X, Loader2, Download, Lock } from 'lucide-react';
+import { ArrowLeft, Image, Film, X, Loader2, Download, Lock, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import MediaEditor from '@/components/media/MediaEditor';
 
 const CreatePost: React.FC = () => {
   const { userProfile } = useAuth();
@@ -29,6 +30,8 @@ const CreatePost: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [postType, setPostType] = useState<'post' | 'reel'>('post');
   const [allowDownload, setAllowDownload] = useState(true);
+  const [showEditor, setShowEditor] = useState(false);
+  const [appliedFilter, setAppliedFilter] = useState('none');
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -48,6 +51,7 @@ const CreatePost: React.FC = () => {
   const clearMedia = () => {
     setMediaFile(null);
     setMediaPreview('');
+    setAppliedFilter('none');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -110,7 +114,7 @@ const CreatePost: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-full flex flex-col overflow-y-auto bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
@@ -188,6 +192,13 @@ const CreatePost: React.FC = () => {
               className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center"
             >
               <X className="w-5 h-5 text-white" />
+            </button>
+            <button
+              onClick={() => setShowEditor(true)}
+              className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 text-white text-xs font-medium"
+            >
+              <Sparkles className="w-4 h-4" />
+              {appliedFilter !== 'none' ? 'Edit Again' : 'Edit & Filters'}
             </button>
           </motion.div>
         )}
@@ -269,6 +280,26 @@ const CreatePost: React.FC = () => {
           </motion.div>
         )}
       </div>
+
+      {/* Media Editor */}
+      {mediaFile && (
+        <MediaEditor
+          file={mediaFile}
+          mediaType={mediaType}
+          onSave={(editedFile, filter) => {
+            setMediaFile(editedFile);
+            setAppliedFilter(filter);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              setMediaPreview(event.target?.result as string);
+            };
+            reader.readAsDataURL(editedFile);
+            setShowEditor(false);
+          }}
+          onCancel={() => setShowEditor(false)}
+          open={showEditor}
+        />
+      )}
     </div>
   );
 };

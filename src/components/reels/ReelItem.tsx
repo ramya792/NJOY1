@@ -202,7 +202,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
       </AnimatePresence>
 
       {/* Right side actions */}
-      <div className="absolute right-3 bottom-32 flex flex-col items-center gap-6">
+      <div className="absolute right-3 bottom-24 flex flex-col items-center gap-5 z-10">
         <motion.button whileTap={{ scale: 0.8 }} onClick={handleLike} className="flex flex-col items-center gap-1">
           <Heart className={`w-7 h-7 ${liked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
           <span className="text-white text-xs font-medium">{likesCount}</span>
@@ -237,12 +237,17 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
         </button>
       </div>
 
-      {/* Bottom info */}
-      <div className="absolute left-3 right-16 bottom-8">
-        <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm mb-1">
+      {/* Bottom info - order: username → caption → hashtags */}
+      <div className="absolute left-3 right-16 bottom-6 z-10">
+        <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm block mb-1">
           @{reel.username}
         </button>
-        {/* Hashtags - show below username and above caption */}
+        {(() => {
+          const captionText = (reel.caption || '').replace(/#\w+/g, '').trim();
+          return captionText ? (
+            <p className="text-white text-sm line-clamp-2 mb-1">{captionText}</p>
+          ) : null;
+        })()}
         {(() => {
           const hashtags = (reel.caption || '').match(/#\w+/g);
           if (!hashtags || hashtags.length === 0) return null;
@@ -254,13 +259,10 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
             </div>
           );
         })()}
-        <p className="text-white text-sm line-clamp-2">
-          {(reel.caption || '').replace(/#\w+/g, '').trim()}
-        </p>
         {reel.song && (
-          <div className="flex items-center gap-2 mt-2">
-            <div className="w-4 h-4 bg-white/20 rounded animate-spin" />
-            <span className="text-white text-xs">🎵 {reel.song}</span>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="w-4 h-4 bg-white/20 rounded-full animate-spin" />
+            <span className="text-white text-xs truncate">🎵 {reel.song}</span>
           </div>
         )}
       </div>

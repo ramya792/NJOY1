@@ -128,6 +128,10 @@
     overflow: hidden;
     overscroll-behavior: none;
     -webkit-text-size-adjust: 100%;
+    /* Performance optimizations */
+    will-change: transform;
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
   }
   
   #root {
@@ -142,6 +146,19 @@
   /* Prevent zoom on input focus on mobile */
   input, textarea, select {
     font-size: 16px !important;
+  }
+  
+  /* Hardware acceleration for animations */
+  video, img {
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    will-change: transform;
+  }
+  
+  /* Optimize scrolling performance */
+  .scroll-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 }
 
@@ -375,4 +392,39 @@
 /* Ensure smooth scrolling everywhere */
 * {
   -webkit-overflow-scrolling: touch;
+}
+
+/* Performance optimizations */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Optimize image rendering */
+img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* GPU acceleration for transforms */
+.transform-gpu {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Optimize video playback */
+video {
+  object-fit: cover;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Prevent layout shifts */
+@supports (content-visibility: auto) {
+  .lazy-content {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 500px;
+  }
 }

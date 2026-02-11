@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
 import FollowersModal from './FollowersModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
@@ -33,6 +34,19 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
   const [localProfile, setLocalProfile] = useState(profile);
+  const [showFullPhoto, setShowFullPhoto] = useState(false);
+  const lastTapRef = useRef(0);
+
+  const handleAvatarTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      // Double tap - show fullscreen
+      if (localProfile.photoURL) {
+        setShowFullPhoto(true);
+      }
+    }
+    lastTapRef.current = now;
+  }, [localProfile.photoURL]);
 
   // Deduplicate followers and following arrays
   const uniqueFollowers = [...new Set(localProfile.followers || [])];
@@ -56,7 +70,10 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
       <div className="max-w-lg mx-auto px-4 py-6">
         <div className="flex items-start gap-6 mb-4">
           {/* Avatar */}
-          <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-secondary flex-shrink-0">
+          <div 
+            className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-secondary flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+            onClick={handleAvatarTap}
+          >
             {localProfile.photoURL ? (
               <img
                 src={localProfile.photoURL}
@@ -114,6 +131,27 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           </Button>
         )}
       </div>
+
+      {/* Fullscreen Photo Viewer */}
+      {showFullPhoto && localProfile.photoURL && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+          onClick={() => setShowFullPhoto(false)}
+        >
+          <button 
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white z-10"
+            onClick={() => setShowFullPhoto(false)}
+          >
+            <X className="w-7 h-7" />
+          </button>
+          <img
+            src={localProfile.photoURL}
+            alt={localProfile.username}
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       <FollowersModal
         isOpen={showFollowers}

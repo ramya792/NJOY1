@@ -1,23 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Heart, UserPlus, UserCheck, UserX, MessageCircle, Film } from 'lucide-react';
+import { ArrowLeft, Heart, UserPlus, UserCheck, UserX, MessageCircle, Film, AtSign, Plus, Image as ImageIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  collection, query, where, getDocs, doc, updateDoc, arrayUnion, deleteDoc
+  collection, query, where, getDocs, doc, updateDoc, arrayUnion, deleteDoc, addDoc, serverTimestamp
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Notification {
   id: string;
-  type: 'like' | 'comment' | 'follow_request' | 'follow_accepted' | 'message' | 'reel_like' | 'reel_comment';
+  type: 'like' | 'comment' | 'follow_request' | 'follow_accepted' | 'message' | 'reel_like' | 'reel_comment' | 'mention';
   fromUserId: string;
   fromUsername: string;
   fromUserPhoto: string;
   postId?: string;
   reelId?: string;
+  storyId?: string;
+  storyMediaUrl?: string;
+  storyMediaType?: 'image' | 'video';
   conversationId?: string;
   postImage?: string;
   message: string;
@@ -28,8 +40,12 @@ interface Notification {
 const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
   const { userProfile, updateUserProfile } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddToStoryDialog, setShowAddToStoryDialog] = useState(false);
+  const [selectedMentionNotification, setSelectedMentionNotification] = useState<Notification | null>(null);
+  const [addingToStory, setAddingToStory] = useState(false);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -129,6 +145,58 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
     }
   };
 
+  const handleAddToStory = async () => {
+    if (!selectedMentionNotification || !userProfile) return;
+    
+    if (!selectedMentionNotification.storyMediaUrl) {
+      toast({
+        title: 'Error',
+        description: 'Story media is no longer available.',
+        variant: 'destructive',
+      });
+      setShowAddToStoryDialog(false);
+      setSelectedMentionNotification(null);
+      return;
+    }
+    
+    setAddingToStory(true);
+    try {
+      // Add the mentioned story to current user's stories
+      await addDoc(collection(db, 'stories'), {
+        userId: userProfile.uid,
+        username: userProfile.username,
+        userPhoto: userProfile.photoURL || '',
+        mediaUrl: selectedMentionNotification.storyMediaUrl,
+        mediaType: selectedMentionNotification.storyMediaType || 'image',
+        createdAt: serverTimestamp(),
+        viewedBy: [],
+        likes: [],
+        mentions: [],
+        music: null,
+        isRepost: true,
+        originalUserId: selectedMentionNotification.fromUserId,
+        originalUsername: selectedMentionNotification.fromUsername,
+      });
+      
+      toast({
+        title: 'Added to your story!',
+        description: 'The story has been shared to your profile.',
+      });
+      
+      setShowAddToStoryDialog(false);
+      setSelectedMentionNotification(null);
+    } catch (error) {
+      console.error('Error adding to story:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not add to story. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAddingToStory(false);
+    }
+  };
+
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'like': 
@@ -143,6 +211,8 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
         return <UserCheck className="w-5 h-5 text-green-500" />;
       case 'message':
         return <MessageCircle className="w-5 h-5 text-blue-500" />;
+      case 'mention':
+        return <AtSign className="w-5 h-5 text-purple-500" />;
       default: 
         return null;
     }
@@ -164,12 +234,24 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
         </div>
       );
     }
+    
+    if (notification.type === 'mention' && notification.storyMediaUrl) {
+      return (
+        <div className="w-12 h-12 rounded overflow-hidden bg-secondary flex-shrink-0">
+          {notification.storyMediaType === 'video' ? (
+            <video src={notification.storyMediaUrl} className="w-full h-full object-cover" />
+          ) : (
+            <img src={notification.storyMediaUrl} alt="" className="w-full h-full object-cover" />
+          )}
+        </div>
+      );
+    }
 
     return null;
   };
 
   return (
-    <div ref={ref} className="min-h-screen bg-background">
+    <div ref={ref} className="h-full flex flex-col overflow-y-auto bg-background">
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center h-14 px-4 max-w-lg mx-auto">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2">
@@ -276,6 +358,22 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
                     </Button>
                   </div>
                 )}
+                
+                {notification.type === 'mention' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedMentionNotification(notification);
+                      setShowAddToStoryDialog(true);
+                    }}
+                    className="flex items-center gap-1 flex-shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add to Story
+                  </Button>
+                )}
 
                 {getNotificationPreview(notification)}
               </motion.div>
@@ -283,6 +381,55 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
           </div>
         )}
       </div>
+      
+      {/* Add to Story Dialog */}
+      <Dialog open={showAddToStoryDialog} onOpenChange={setShowAddToStoryDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add to Your Story</DialogTitle>
+            <DialogDescription>
+              Share @{selectedMentionNotification?.fromUsername}'s story mention to your story?
+            </DialogDescription>
+          </DialogHeader>
+          {selectedMentionNotification && (
+            <div className="my-4 flex justify-center">
+              <div className="w-48 h-64 rounded-lg overflow-hidden bg-secondary">
+                {selectedMentionNotification.storyMediaType === 'video' ? (
+                  <video 
+                    src={selectedMentionNotification.storyMediaUrl} 
+                    className="w-full h-full object-cover"
+                    muted
+                    loop
+                    autoPlay
+                  />
+                ) : (
+                  <img 
+                    src={selectedMentionNotification.storyMediaUrl} 
+                    alt="Story" 
+                    className="w-full h-full object-cover" 
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowAddToStoryDialog(false)}
+              disabled={addingToStory}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddToStory}
+              disabled={addingToStory}
+              className="btn-gradient"
+            >
+              {addingToStory ? 'Adding...' : 'Add to Story'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

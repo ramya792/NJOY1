@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Send, Phone, Video, Info, Image, Smile, Paperclip, FileText, X, Loader2, PhoneOff,
-  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users
+  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users, User, Palette
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { 
@@ -52,6 +52,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { CallService } from '@/lib/callService';
+import ChatWallpaperPicker, { getChatWallpaper, getWallpaperStyle, WallpaperConfig } from '@/components/chat/ChatWallpaper';
 
 interface Message {
   id: string;
@@ -109,6 +110,15 @@ const ChatRoom: React.FC = () => {
   const [showUserInfoDialog, setShowUserInfoDialog] = useState(false);
   const [participantFollowers, setParticipantFollowers] = useState<string[]>([]);
   const [participantFollowing, setParticipantFollowing] = useState<string[]>([]);
+  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [wallpaper, setWallpaper] = useState<WallpaperConfig>({ type: 'none', value: '' });
+
+  // Load wallpaper on mount
+  useEffect(() => {
+    if (currentConversationId) {
+      setWallpaper(getChatWallpaper(currentConversationId));
+    }
+  }, [currentConversationId]);
 
   // Recording timer
   useEffect(() => {
@@ -650,6 +660,86 @@ const ChatRoom: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Render text with clickable profile links and URLs
+  const renderTextWithLinks = (text: string) => {
+    if (!text) return null;
+    
+    // Match profile links and regular URLs
+    const profileLinkRegex = /(https?:\/\/[^\s]*\/user\/[^\s]+)/g;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    
+    // Check for profile share pattern
+    const profileMatch = text.match(/\/user\/([\w-]+)/);
+    if (profileMatch) {
+      const parts = text.split(urlRegex);
+      return (
+        <span>
+          {parts.map((part, i) => {
+            if (urlRegex.test(part)) {
+              const userMatch = part.match(/\/user\/([\w-]+)/);
+              if (userMatch) {
+                return (
+                  <button
+                    key={i}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      navigate(`/user/${userMatch[1]}`);
+                    }}
+                    className="text-blue-400 underline hover:text-blue-300 break-all"
+                  >
+                    {part}
+                  </button>
+                );
+              }
+              return (
+                <a
+                  key={i}
+                  href={part}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-blue-400 underline hover:text-blue-300 break-all"
+                >
+                  {part}
+                </a>
+              );
+            }
+            return <span key={i}>{part}</span>;
+          })}
+        </span>
+      );
+    }
+    
+    // Handle regular URLs
+    const urlParts = text.split(urlRegex);
+    if (urlParts.length > 1) {
+      return (
+        <span>
+          {urlParts.map((part, i) => {
+            if (urlRegex.test(part)) {
+              return (
+                <a
+                  key={i}
+                  href={part}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-blue-400 underline hover:text-blue-300 break-all"
+                >
+                  {part}
+                </a>
+              );
+            }
+            return <span key={i}>{part}</span>;
+          })}
+        </span>
+      );
+    }
+    
+    return text;
+  };
+
   const renderMessage = (message: Message) => {
     if (message.mediaUrl) {
       if (message.mediaType === 'image') {
@@ -752,12 +842,16 @@ const ChatRoom: React.FC = () => {
         );
       }
     }
-    return <p className="text-sm">{message.text}</p>;
+    return (
+      <p className="text-sm" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+        {renderTextWithLinks(message.text)}
+      </p>
+    );
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -768,13 +862,16 @@ const ChatRoom: React.FC = () => {
       {/* Header */}
       <header className="flex-shrink-0 glass border-b border-border z-10">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/messages')} className="p-2 -ml-2">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <button onClick={() => navigate('/messages')} className="p-2 -ml-2 flex-shrink-0">
               <ArrowLeft className="w-6 h-6" />
             </button>
             
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary">
+            <button
+              onClick={() => participant && navigate(`/user/${participant.uid}`)}
+              className="flex items-center gap-3 flex-1 min-w-0"
+            >
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary flex-shrink-0">
                 {participant?.photoURL ? (
                   <img
                     src={participant.photoURL}
@@ -787,26 +884,10 @@ const ChatRoom: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div 
-                className="cursor-pointer select-none"
-                onDoubleClick={async () => {
-                  if (!participant) return;
-                  try {
-                    const userDoc = await getDoc(doc(db, 'users', participant.uid));
-                    if (userDoc.exists()) {
-                      const data = userDoc.data();
-                      setParticipantFollowers(data.followers || []);
-                      setParticipantFollowing(data.following || []);
-                    }
-                    setShowUserInfoDialog(true);
-                  } catch (error) {
-                    console.error('Error fetching user info:', error);
-                  }
-                }}
-              >
-                <p className="font-semibold text-sm">{participant?.username}</p>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{participant?.username}</p>
                 {participant?.showActivity !== false && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground truncate">
                     {participant?.isOnline 
                       ? 'Active now' 
                       : participant?.lastSeen 
@@ -816,10 +897,10 @@ const ChatRoom: React.FC = () => {
                   </p>
                 )}
               </div>
-            </div>
+            </button>
           </div>
           
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button 
               onClick={() => handleStartCall('audio')}
               className="p-2 hover:bg-secondary rounded-full transition-colors"
@@ -840,6 +921,27 @@ const ChatRoom: React.FC = () => {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={async () => {
+                  if (!participant) return;
+                  try {
+                    const userDoc = await getDoc(doc(db, 'users', participant.uid));
+                    if (userDoc.exists()) {
+                      const data = userDoc.data();
+                      setParticipantFollowers(data.followers || []);
+                      setParticipantFollowing(data.following || []);
+                    }
+                    setShowUserInfoDialog(true);
+                  } catch (error) {
+                    console.error('Error fetching user info:', error);
+                  }
+                }}>
+                  <User className="w-4 h-4 mr-2" />
+                  View info
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowWallpaperPicker(true)}>
+                  <Palette className="w-4 h-4 mr-2" />
+                  Wallpaper
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setShowClearChatDialog(true)}>
                   <Trash2 className="w-4 h-4 mr-2" />
                   Clear chat
@@ -855,7 +957,7 @@ const ChatRoom: React.FC = () => {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0 }}>
+      <div className="flex-1 overflow-y-auto px-4 py-2" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0, ...getWallpaperStyle(wallpaper) }}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
@@ -883,11 +985,11 @@ const ChatRoom: React.FC = () => {
             return (
               <div
                 key={message.id}
-                className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                className={`flex ${isMine ? 'justify-end' : 'justify-start'} mb-2`}
               >
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <div className={`max-w-[75%] px-4 py-2 cursor-pointer ${isMine ? 'message-sent' : 'message-received'}`}>
+                    <div className={`max-w-[75%] px-4 py-2 cursor-pointer ${isMine ? 'message-sent' : 'message-received'}`} style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {renderMessage(message)}
                       <p className={`text-xs mt-1 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
                         {formatDistanceToNow(message.createdAt, { addSuffix: false })}
@@ -914,7 +1016,7 @@ const ChatRoom: React.FC = () => {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 border-t border-border p-3 bg-background" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}>
+      <div className="flex-shrink-0 border-t border-border p-2 bg-background" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}>
         {isRecording ? (
           <div className="flex items-center gap-4 max-w-lg mx-auto">
             <div className="flex-1 flex items-center gap-3 bg-destructive/10 rounded-full px-4 py-2">
@@ -1186,6 +1288,17 @@ const ChatRoom: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Chat Wallpaper Picker */}
+      {currentConversationId && (
+        <ChatWallpaperPicker
+          isOpen={showWallpaperPicker}
+          onClose={() => setShowWallpaperPicker(false)}
+          conversationId={currentConversationId}
+          onWallpaperChange={setWallpaper}
+          currentWallpaper={wallpaper}
+        />
+      )}
     </div>
   );
 };

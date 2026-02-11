@@ -216,39 +216,56 @@ const SearchTabs: React.FC = () => {
         return;
       }
 
+      // Require minimum 3 characters for user search
+      const searchLower = searchQuery.toLowerCase().trim();
+      const canSearchUsers = searchLower.length >= 3;
+
       setLoading(true);
       setSearched(true);
 
       try {
         const searchResults: SearchResult[] = [];
-        const searchLower = searchQuery.toLowerCase().trim();
 
-        // Search users - search by username prefix AND fetch all users for partial match
-        if (activeTab === 'all' || activeTab === 'users') {
+        // Search users - only when 3+ characters typed
+        if (canSearchUsers && (activeTab === 'all' || activeTab === 'users')) {
           const foundIds = new Set<string>();
 
-          // Fetch users (broader set) and filter client-side for case-insensitive partial match
-          const allUsersQuery = query(
+          // Use prefix query instead of fetching all users
+          const prefixEnd = searchLower.slice(0, -1) + String.fromCharCode(searchLower.charCodeAt(searchLower.length - 1) + 1);
+          const usernameQuery = query(
             collection(db, 'users'),
-            limit(500)
+            where('usernameLower', '>=', searchLower),
+            where('usernameLower', '<', prefixEnd),
+            limit(30)
           );
-          const allUsersSnapshot = await getDocs(allUsersQuery);
-          allUsersSnapshot.forEach((doc) => {
-            if (foundIds.has(doc.id)) return;
-            const data = doc.data();
-            const username = (data.username || '').toLowerCase();
-            const displayName = (data.displayName || '').toLowerCase();
-            const email = (data.email || '').toLowerCase();
-            
-            if (username.includes(searchLower) || displayName.includes(searchLower) || email.split('@')[0].includes(searchLower)) {
-              foundIds.add(doc.id);
-              searchResults.push({
-                type: 'user',
-                id: doc.id,
-                data: data,
-              });
-            }
-          });
+          
+          try {
+            const usernameSnapshot = await getDocs(usernameQuery);
+            usernameSnapshot.forEach((doc) => {
+              if (!foundIds.has(doc.id)) {
+                foundIds.add(doc.id);
+                searchResults.push({ type: 'user', id: doc.id, data: doc.data() });
+              }
+            });
+          } catch {
+            // Fallback: if usernameLower field doesn't exist, use broader search with lower limit
+            const allUsersQuery = query(
+              collection(db, 'users'),
+              limit(100)
+            );
+            const allUsersSnapshot = await getDocs(allUsersQuery);
+            allUsersSnapshot.forEach((doc) => {
+              if (foundIds.has(doc.id)) return;
+              const data = doc.data();
+              const username = (data.username || '').toLowerCase();
+              const displayName = (data.displayName || '').toLowerCase();
+              
+              if (username.includes(searchLower) || displayName.includes(searchLower)) {
+                foundIds.add(doc.id);
+                searchResults.push({ type: 'user', id: doc.id, data: data });
+              }
+            });
+          }
         }
 
         // Search reels by caption, hashtags, and songs
@@ -428,6 +445,18 @@ const SearchTabs: React.FC = () => {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
+          ) : searched && filteredResults.length === 0 && searchQuery.trim().length < 3 && (activeTab === 'all' || activeTab === 'users') ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-12"
+            >
+              <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="font-semibold text-lg mb-1">Type at least 3 characters</p>
+              <p className="text-muted-foreground text-sm">Enter 3 or more letters to search for users</p>
+            </motion.div>
           ) : searched && filteredResults.length === 0 ? (
             <motion.div
               initial={{ opacity: 0 }}

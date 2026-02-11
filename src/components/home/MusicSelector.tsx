@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Music, Play, Check, Pause, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import MUSIC_LIBRARY, { fetchPreviewUrl, MOOD_CATEGORIES } from '@/lib/musicData';
-import type { MusicTrack, MoodCategory } from '@/lib/musicData';
+import MUSIC_LIBRARY, { fetchPreviewUrl, MOOD_CATEGORIES, LANGUAGE_CATEGORIES, searchMusic } from '@/lib/musicData';
+import type { MusicTrack, MoodCategory, LanguageCategory } from '@/lib/musicData';
 
 interface MusicSelectorProps {
   open: boolean;
@@ -16,6 +16,7 @@ interface MusicSelectorProps {
 const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, selectedTrack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMood, setSelectedMood] = useState<MoodCategory | ''>('');
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCategory | ''>('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -76,13 +77,7 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
     }
   }, [open]);
 
-  const filteredMusic = MUSIC_LIBRARY.filter((track) => {
-    const matchesMood = !selectedMood || track.mood === selectedMood;
-    const matchesSearch = !searchQuery.trim() ||
-      track.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      track.artist.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesMood && matchesSearch;
-  });
+  const filteredMusic = searchMusic(searchQuery, selectedMood, selectedLanguage);
 
   const handleSelect = async (track: MusicTrack) => {
     // Fetch real preview URL before saving to story
@@ -142,6 +137,26 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
               </div>
             </div>
 
+            {/* Language Filter Pills */}
+            <div className="px-4 pt-2 pb-1">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+                {LANGUAGE_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.label}
+                    onClick={() => setSelectedLanguage(cat.value)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                      selectedLanguage === cat.value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary hover:bg-secondary/80 text-secondary-foreground'
+                    }`}
+                  >
+                    <span>{cat.flag}</span>
+                    <span>{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Mood Filter Pills */}
             <div className="px-4 pb-3 border-b border-border">
               <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
@@ -163,7 +178,7 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
             </div>
 
             {/* Music List */}
-            <ScrollArea className="h-[calc(85vh-220px)]">
+            <ScrollArea className="h-[calc(85vh-270px)]">
               <div className="p-2">
                 {selectedTrack && (
                   <button
@@ -219,7 +234,7 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
                           className="text-left flex-1 min-w-0"
                         >
                           <p className="font-medium text-sm truncate">{track.title}</p>
-                          <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+                          <p className="text-xs text-muted-foreground truncate">{track.artist} · {track.language}</p>
                         </button>
                       </div>
                       <span className="text-xs text-muted-foreground ml-2">{track.duration}</span>

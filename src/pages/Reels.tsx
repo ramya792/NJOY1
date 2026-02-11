@@ -149,44 +149,32 @@ const Reels: React.FC = () => {
     return () => container.removeEventListener('wheel', handleWheel);
   }, [currentIndex, scrollToIndex]);
 
-  // Handle touch events (mobile) — swipe up/down = one reel
+  // Detect current reel via scroll position (CSS snap handles the actual snapping)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handleTouchStart = (e: TouchEvent) => {
-      touchStartYRef.current = e.touches[0].clientY;
-      touchStartTimeRef.current = Date.now();
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (isAnimatingRef.current) return;
-      
-      const deltaY = touchStartYRef.current - e.changedTouches[0].clientY;
-      const deltaTime = Date.now() - touchStartTimeRef.current;
-      const velocity = Math.abs(deltaY) / deltaTime;
-      
-      // Require minimum swipe distance (50px) or fast swipe velocity
-      const minSwipe = 50;
-      if (Math.abs(deltaY) > minSwipe || velocity > 0.3) {
-        if (deltaY > 0) {
-          scrollToIndex(currentIndex + 1);
-        } else {
-          scrollToIndex(currentIndex - 1);
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        const height = container.clientHeight;
+        if (height === 0) return;
+        const newIndex = Math.round(container.scrollTop / height);
+        const clamped = Math.max(0, Math.min(newIndex, visibleReels.length - 1));
+        if (clamped !== currentIndex) {
+          setCurrentIndex(clamped);
         }
-      } else {
-        // Snap back to current position
-        scrollToIndex(currentIndex);
-      }
+        isAnimatingRef.current = false;
+      }, 150);
     };
 
-    container.addEventListener('touchstart', handleTouchStart, { passive: true });
-    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+    container.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
-      container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
     };
-  }, [currentIndex, scrollToIndex]);
+  }, [currentIndex, visibleReels.length]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -236,14 +224,15 @@ const Reels: React.FC = () => {
     <div
       ref={containerRef}
       className="reel-container scrollbar-hide"
-      style={{ touchAction: 'none' }}
+      style={{ touchAction: 'pan-y', scrollSnapType: 'y mandatory', overscrollBehavior: 'contain' }}
     >
       {visibleReels.map((reel, index) => (
-        <ReelItem
-          key={reel.id}
-          reel={reel}
-          isActive={index === currentIndex}
-        />
+        <div key={reel.id} style={{ scrollSnapAlign: 'start', scrollSnapStop: 'always' }}>
+          <ReelItem
+            reel={reel}
+            isActive={index === currentIndex}
+          />
+        </div>
       ))}
     </div>
   );

@@ -314,7 +314,7 @@ const UserProfile: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -322,7 +322,7 @@ const UserProfile: React.FC = () => {
 
   if (!profile) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center">
+      <div className="h-full flex flex-col items-center justify-center">
         <h2 className="font-display font-semibold text-xl mb-2">User not found</h2>
         <Button onClick={() => navigate(-1)}>Go back</Button>
       </div>
@@ -332,7 +332,7 @@ const UserProfile: React.FC = () => {
   const lastSeen = formatLastSeen();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-full flex flex-col overflow-y-auto bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">

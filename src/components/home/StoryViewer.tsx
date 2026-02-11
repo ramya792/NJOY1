@@ -67,6 +67,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   const [loadingLikers, setLoadingLikers] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const isPausedRef = useRef(false);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isLongPressed, setIsLongPressed] = useState(false);
   const currentStory = localStories[currentIndex];
   const isOwnStory = currentStory?.userId === userProfile?.uid;
 
@@ -98,6 +101,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     let elapsed = 0;
 
     const timer = setInterval(() => {
+      if (isPausedRef.current) return; // Skip when long-pressed
       elapsed += interval;
       setProgress((elapsed / duration) * 100);
 
@@ -517,6 +521,29 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
 
   const viewerCount = currentStory?.viewedBy?.filter(id => id !== currentStory.userId).length || 0;
 
+  // Long-press handlers for pause/resume
+  const handlePressStart = () => {
+    longPressTimerRef.current = setTimeout(() => {
+      isPausedRef.current = true;
+      setIsLongPressed(true);
+      if (videoRef.current) videoRef.current.pause();
+      if (audioRef.current) audioRef.current.pause();
+    }, 200);
+  };
+
+  const handlePressEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (isPausedRef.current) {
+      isPausedRef.current = false;
+      setIsLongPressed(false);
+      if (videoRef.current) videoRef.current.play().catch(() => {});
+      if (audioRef.current) audioRef.current.play().catch(() => {});
+    }
+  };
+
   if (!currentStory) return null;
 
   return (
@@ -611,6 +638,18 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       </div>
 
       {/* Media */}
+
+      {/* Paused indicator */}
+      {isLongPressed && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
+          <div className="bg-black/50 backdrop-blur-sm rounded-full p-4">
+            <div className="flex gap-1.5">
+              <div className="w-2 h-8 bg-white rounded-sm" />
+              <div className="w-2 h-8 bg-white rounded-sm" />
+            </div>
+          </div>
+        </div>
+      )}
       <AnimatePresence mode="wait">
         <motion.div
           key={currentStory.id}
@@ -690,11 +729,21 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       {!showViewers && !showMentionInput && !showLikers && (
         <>
           <button
-            onClick={goPrev}
+            onClick={() => { if (!isLongPressed) goPrev(); }}
+            onTouchStart={handlePressStart}
+            onTouchEnd={handlePressEnd}
+            onMouseDown={handlePressStart}
+            onMouseUp={handlePressEnd}
+            onMouseLeave={handlePressEnd}
             className="absolute left-0 top-20 bottom-20 w-1/3 z-10"
           />
           <button
-            onClick={goNext}
+            onClick={() => { if (!isLongPressed) goNext(); }}
+            onTouchStart={handlePressStart}
+            onTouchEnd={handlePressEnd}
+            onMouseDown={handlePressStart}
+            onMouseUp={handlePressEnd}
+            onMouseLeave={handlePressEnd}
             className="absolute right-0 top-20 bottom-20 w-2/3 z-10"
           />
         </>
@@ -852,15 +901,23 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
                 <p className="text-center text-muted-foreground py-8">No viewers yet</p>
               ) : (
                 <div className="p-4 space-y-3">
-                  {viewers.map((viewer) => (
-                    <div key={viewer.uid} className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={viewer.photoURL} alt={viewer.username} />
-                        <AvatarFallback>{viewer.username.charAt(0).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium text-sm">{viewer.username}</span>
-                    </div>
-                  ))}
+                  {viewers.map((viewer) => {
+                    const hasLiked = currentStory?.likes?.includes(viewer.uid);
+                    return (
+                      <div key={viewer.uid} className="flex items-center gap-3 justify-between">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={viewer.photoURL} alt={viewer.username} />
+                            <AvatarFallback>{viewer.username.charAt(0).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <span className="font-medium text-sm">{viewer.username}</span>
+                        </div>
+                        {hasLiked && (
+                          <Heart className="w-4 h-4 text-red-500 fill-red-500 flex-shrink-0" />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </ScrollArea>
