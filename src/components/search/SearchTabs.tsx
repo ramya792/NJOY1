@@ -230,41 +230,73 @@ const SearchTabs: React.FC = () => {
         if (canSearchUsers && (activeTab === 'all' || activeTab === 'users')) {
           const foundIds = new Set<string>();
 
-          // Use prefix query instead of fetching all users
-          const prefixEnd = searchLower.slice(0, -1) + String.fromCharCode(searchLower.charCodeAt(searchLower.length - 1) + 1);
-          const usernameQuery = query(
-            collection(db, 'users'),
-            where('usernameLower', '>=', searchLower),
-            where('usernameLower', '<', prefixEnd),
-            limit(30)
-          );
+          // Try multiple approaches for user search
+          let foundUsers = false;
           
+          // Approach 1: Try usernameLower prefix query
           try {
-            const usernameSnapshot = await getDocs(usernameQuery);
-            usernameSnapshot.forEach((doc) => {
-              if (!foundIds.has(doc.id)) {
-                foundIds.add(doc.id);
-                searchResults.push({ type: 'user', id: doc.id, data: doc.data() });
-              }
-            });
-          } catch {
-            // Fallback: if usernameLower field doesn't exist, use broader search with lower limit
-            const allUsersQuery = query(
+            const prefixEnd = searchLower.slice(0, -1) + String.fromCharCode(searchLower.charCodeAt(searchLower.length - 1) + 1);
+            const usernameQuery = query(
               collection(db, 'users'),
-              limit(100)
+              where('usernameLower', '>=', searchLower),
+              where('usernameLower', '<', prefixEnd),
+              limit(30)
             );
-            const allUsersSnapshot = await getDocs(allUsersQuery);
-            allUsersSnapshot.forEach((doc) => {
-              if (foundIds.has(doc.id)) return;
-              const data = doc.data();
-              const username = (data.username || '').toLowerCase();
-              const displayName = (data.displayName || '').toLowerCase();
-              
-              if (username.includes(searchLower) || displayName.includes(searchLower)) {
-                foundIds.add(doc.id);
-                searchResults.push({ type: 'user', id: doc.id, data: data });
+            const usernameSnapshot = await getDocs(usernameQuery);
+            if (!usernameSnapshot.empty) {
+              foundUsers = true;
+              usernameSnapshot.forEach((doc) => {
+                if (!foundIds.has(doc.id)) {
+                  foundIds.add(doc.id);
+                  searchResults.push({ type: 'user', id: doc.id, data: doc.data() });
+                }
+              });
+            }
+          } catch {}
+
+          // Approach 2: Try username field (original case) prefix query
+          if (!foundUsers) {
+            try {
+              const prefixEnd = searchLower.slice(0, -1) + String.fromCharCode(searchLower.charCodeAt(searchLower.length - 1) + 1);
+              const usernameQuery = query(
+                collection(db, 'users'),
+                where('username', '>=', searchLower),
+                where('username', '<', prefixEnd),
+                limit(30)
+              );
+              const usernameSnapshot = await getDocs(usernameQuery);
+              if (!usernameSnapshot.empty) {
+                foundUsers = true;
+                usernameSnapshot.forEach((doc) => {
+                  if (!foundIds.has(doc.id)) {
+                    foundIds.add(doc.id);
+                    searchResults.push({ type: 'user', id: doc.id, data: doc.data() });
+                  }
+                });
               }
-            });
+            } catch {}
+          }
+          
+          // Approach 3: Broad fallback - fetch users and filter client-side
+          if (!foundUsers) {
+            try {
+              const allUsersQuery = query(
+                collection(db, 'users'),
+                limit(200)
+              );
+              const allUsersSnapshot = await getDocs(allUsersQuery);
+              allUsersSnapshot.forEach((doc) => {
+                if (foundIds.has(doc.id)) return;
+                const data = doc.data();
+                const username = (data.username || '').toLowerCase();
+                const displayName = (data.displayName || '').toLowerCase();
+                
+                if (username.includes(searchLower) || displayName.includes(searchLower)) {
+                  foundIds.add(doc.id);
+                  searchResults.push({ type: 'user', id: doc.id, data: data });
+                }
+              });
+            } catch {}
           }
         }
 
@@ -364,7 +396,7 @@ const SearchTabs: React.FC = () => {
   const showSearchResults = searchFocused || searchQuery.trim().length > 0;
 
   return (
-    <div className="min-h-[calc(100dvh-56px)] bg-background pb-4">
+    <div className="h-full bg-background pb-4 overflow-x-hidden">
       {/* Search Header */}
       <div className="sticky top-0 z-40 glass border-b border-border">
         <div className="p-4 max-w-lg mx-auto">

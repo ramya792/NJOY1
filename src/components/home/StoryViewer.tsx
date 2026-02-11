@@ -269,20 +269,66 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       setMentionLoading(true);
       try {
         const searchLower = mentionQuery.toLowerCase().trim();
-        const usersQuery = query(
-          collection(db, 'users'),
-          where('username', '>=', searchLower),
-          where('username', '<=', searchLower + '\uf8ff'),
-          limit(20)
-        );
-        const snapshot = await getDocs(usersQuery);
+        
+        // Try with usernameLower field first (case-insensitive)
+        let snapshot;
+        try {
+          const usersQuery = query(
+            collection(db, 'users'),
+            where('usernameLower', '>=', searchLower),
+            where('usernameLower', '<=', searchLower + '\uf8ff'),
+            limit(30)
+          );
+          snapshot = await getDocs(usersQuery);
+        } catch {
+          // Fallback: query all and filter client-side
+          snapshot = null;
+        }
+        
+        // If usernameLower query returned nothing or failed, try username field + client filter
+        if (!snapshot || snapshot.empty) {
+          try {
+            const fallbackQuery = query(
+              collection(db, 'users'),
+              where('username', '>=', searchLower),
+              where('username', '<=', searchLower + '\uf8ff'),
+              limit(30)
+            );
+            const fallbackSnap = await getDocs(fallbackQuery);
+            if (fallbackSnap.empty) {
+              // Try broader search with limit
+              const broadQuery = query(
+                collection(db, 'users'),
+                limit(100)
+              );
+              snapshot = await getDocs(broadQuery);
+            } else {
+              snapshot = fallbackSnap;
+            }
+          } catch {
+            const broadQuery = query(
+              collection(db, 'users'),
+              limit(100)
+            );
+            snapshot = await getDocs(broadQuery);
+          }
+        }
+        
         const results: ViewerInfo[] = [];
         const currentFollowing = new Set(userProfile?.following || []);
         const currentFollowers = new Set(userProfile?.followers || []);
 
-        snapshot.forEach((docSnap) => {
+        snapshot?.forEach((docSnap) => {
           if (docSnap.id !== userProfile?.uid) {
             const data = docSnap.data();
+            const username = (data.username || '').toLowerCase();
+            const displayName = (data.displayName || '').toLowerCase();
+            
+            // Client-side filter to ensure match
+            if (!username.includes(searchLower) && !displayName.includes(searchLower)) {
+              return;
+            }
+            
             const isPrivate = data.isPrivate === true;
             const isFollowedByMe = currentFollowing.has(docSnap.id);
             const isFollowingMe = currentFollowers.has(docSnap.id);

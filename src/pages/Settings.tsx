@@ -344,7 +344,7 @@ const Settings: React.FC = () => {
   ];
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto bg-background pb-20">
+    <div className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background pb-20">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center h-14 px-4 max-w-lg mx-auto">

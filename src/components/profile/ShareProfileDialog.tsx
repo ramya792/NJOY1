@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Send, Loader2, Check, Link2, Share2 } from 'lucide-react';
-import { collection, query, where, orderBy, getDocs, addDoc, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -47,17 +47,33 @@ const ShareProfileDialog: React.FC<ShareProfileDialogProps> = ({
     const fetchUsers = async () => {
       setLoading(true);
       try {
-        // Get conversations
-        const convsQuery = query(
-          collection(db, 'conversations'),
-          where('participants', 'array-contains', userProfile.uid),
-          orderBy('lastMessageTime', 'desc')
-        );
-        const convsSnapshot = await getDocs(convsQuery);
-
         const userMap = new Map<string, ShareUser>();
+        
+        // Get conversations - without orderBy to avoid needing composite index
+        try {
+          const convsQuery = query(
+            collection(db, 'conversations'),
+            where('participants', 'array-contains', userProfile.uid)
+          );
+          const convsSnapshot = await getDocs(convsQuery);
 
-        // Add conversation participants
+          // Add conversation participants
+          for (const convDoc of convsSnapshot.docs) {
+            const data = convDoc.data();
+            const otherId = data.participants.find((p: string) => p !== userProfile.uid);
+            if (otherId && otherId !== profileUserId) {
+              userMap.set(otherId, {
+                uid: otherId,
+                username: data.participantNames?.[otherId] || 'User',
+                displayName: data.participantNames?.[otherId] || 'User',
+                photoURL: data.participantPhotos?.[otherId] || '',
+                conversationId: convDoc.id,
+              });
+            }
+          }
+        } catch (convError) {
+          console.error('Error fetching conversations:', convError);
+        }
         for (const convDoc of convsSnapshot.docs) {
           const data = convDoc.data();
           const otherId = data.participants.find((p: string) => p !== userProfile.uid);
@@ -195,8 +211,21 @@ const ShareProfileDialog: React.FC<ShareProfileDialogProps> = ({
 
   const handleCopyLink = async () => {
     const shareUrl = `${window.location.origin}/user/${profileUserId}`;
-    await navigator.clipboard.writeText(shareUrl);
-    toast({ title: 'Profile link copied!' });
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({ title: 'Profile link copied!' });
+    } catch {
+      // Fallback for mobile browsers that don't support clipboard API
+      const textArea = document.createElement('textarea');
+      textArea.value = shareUrl;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      toast({ title: 'Profile link copied!' });
+    }
   };
 
   const handleExternalShare = async () => {

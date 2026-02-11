@@ -251,7 +251,7 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
   };
 
   return (
-    <div ref={ref} className="h-full flex flex-col overflow-y-auto bg-background">
+    <div ref={ref} className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background">
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center h-14 px-4 max-w-lg mx-auto">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2">

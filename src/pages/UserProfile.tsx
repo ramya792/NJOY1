@@ -332,7 +332,7 @@ const UserProfile: React.FC = () => {
   const lastSeen = formatLastSeen();
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto bg-background">
+    <div className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">

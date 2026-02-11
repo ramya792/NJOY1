@@ -186,7 +186,7 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-background overflow-y-auto">
+    <div className="h-full flex flex-col bg-background overflow-y-auto overflow-x-hidden">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">

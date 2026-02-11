@@ -100,7 +100,16 @@ const AppRoutes = () => (
         <Route path="/settings/privacy" element={<PrivacyPolicy />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/create" element={<CreatePost />} />
-   ErrorBoundary>
+        <Route path="/user/:userId" element={<UserProfile />} />
+        <Route path="/video-songs" element={<VideoSongs />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  </Suspense>
+);
+
+const App = () => (
+  <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
@@ -112,16 +121,7 @@ const AppRoutes = () => (
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
-  </ErrorBoundary
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;
