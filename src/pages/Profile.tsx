@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Grid3X3, Film, Bookmark, LogOut, Trash2, X, Share2 } from 'lucide-react';
+import { Settings, Grid3X3, Film, Bookmark, Tag, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, arrayRemove, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -213,27 +213,57 @@ const Profile: React.FC = () => {
       {/* Profile Info */}
       <ProfileHeader 
         profile={userProfile} 
-        onEditClick={() => setShowEditModal(true)} 
+        onEditClick={() => setShowEditModal(true)}
+        onShareClick={() => setShowShareDialog(true)}
       />
 
-      {/* Tabs */}
-      <Tabs defaultValue="posts" className="max-w-lg mx-auto">
-        <TabsList className="w-full bg-transparent border-t border-border rounded-none h-12">
+      {/* Story Highlights */}
+      <div className="max-w-lg mx-auto px-4 pb-3 border-b border-border">
+        <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-1">
+          <button className="flex flex-col items-center gap-1.5 flex-shrink-0">
+            <div className="w-16 h-16 rounded-full border border-border bg-secondary/50 flex items-center justify-center">
+              <span className="text-2xl">➕</span>
+            </div>
+            <span className="text-xs text-muted-foreground">New</span>
+          </button>
+          {/* Placeholder highlights - can be populated from Firebase later */}
+          {['Moments', 'Travel', 'Food'].map((highlight, idx) => (
+            <button key={idx} className="flex flex-col items-center gap-1.5 flex-shrink-0">
+              <div className="w-16 h-16 rounded-full border-2 border-muted-foreground/20 overflow-hidden bg-secondary">
+                <div className="w-full h-full flex items-center justify-center text-2xl">
+                  {['✨', '🌍', '🍕'][idx]}
+                </div>
+              </div>
+              <span className="text-xs text-foreground/80">{highlight}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tabs - Instagram style */}
+      <Tabs defaultValue="posts" className="max-w-lg mx-auto w-full">
+        <TabsList className="w-full bg-transparent border-t border-border rounded-none h-11 p-0">
           <TabsTrigger 
             value="posts" 
-            className="flex-1 rounded-none data-[state=active]:border-t-2 data-[state=active]:border-foreground"
+            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
           >
             <Grid3X3 className="w-5 h-5" />
           </TabsTrigger>
           <TabsTrigger 
             value="reels" 
-            className="flex-1 rounded-none data-[state=active]:border-t-2 data-[state=active]:border-foreground"
+            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
           >
             <Film className="w-5 h-5" />
           </TabsTrigger>
           <TabsTrigger 
+            value="tagged" 
+            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
+          >
+            <Tag className="w-5 h-5" />
+          </TabsTrigger>
+          <TabsTrigger 
             value="saved" 
-            className="flex-1 rounded-none data-[state=active]:border-t-2 data-[state=active]:border-foreground"
+            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
           >
             <Bookmark className="w-5 h-5" />
           </TabsTrigger>
@@ -259,6 +289,22 @@ const Profile: React.FC = () => {
             contentType="reels"
             onPostDeleted={(id) => setReels(prev => prev.filter(p => p.id !== id))}
           />
+        </TabsContent>
+
+        <TabsContent value="tagged" className="mt-0">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex flex-col items-center justify-center py-20 px-4 text-center"
+          >
+            <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
+              <Tag className="w-10 h-10 text-muted-foreground" />
+            </div>
+            <h3 className="font-semibold text-lg mb-2">Photos of you</h3>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              When people tag you in photos, they'll appear here.
+            </p>
+          </motion.div>
         </TabsContent>
 
         <TabsContent value="saved" className="mt-0">

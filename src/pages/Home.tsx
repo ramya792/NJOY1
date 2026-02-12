@@ -7,7 +7,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import StoriesBar from '@/components/home/StoriesBar';
 import PostCard from '@/components/home/PostCard';
-import PostSkeleton from '@/components/home/PostSkeleton';
 
 interface Post {
   id: string;
@@ -26,10 +25,35 @@ interface Post {
 const Home: React.FC = () => {
   const { userProfile } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<Post[]>(() => {
+    // Restore cached posts for instant display
+    try {
+      const cached = sessionStorage.getItem('njoy_feed_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Restore Date objects from ISO strings
+        return parsed.map((p: any) => ({
+          ...p,
+          createdAt: new Date(p.createdAt)
+        }));
+      }
+    } catch (e) {
+      console.error('Cache restore error:', e);
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => {
+    // If we have cached posts, skip loading skeleton immediately
+    try {
+      const cached = sessionStorage.getItem('njoy_feed_cache');
+      return !cached || cached === '[]';
+    } catch {
+      return true;
+    }
+  });
   const [privateUsers, setPrivateUsers] = useState<Set<string>>(new Set());
   const hasScrolledToPostRef = useRef(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Cache of private user IDs to filter posts
   const privateUserCacheRef = React.useRef<Map<string, boolean>>(new Map());
@@ -64,6 +88,9 @@ const Home: React.FC = () => {
     );
 
     const unsubscribe = onSnapshot(postsQuery, async (snapshot) => {
+      // Immediately clear loading state when data arrives
+      setLoading(false);
+      
       const fetchedPosts = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
@@ -99,7 +126,16 @@ const Home: React.FC = () => {
       setPrivateUsers(privates);
 
       setPosts(fetchedPosts);
-      setLoading(false);
+      // Cache posts for instant restore on tab switch (background, non-blocking)
+      requestIdleCallback(() => {
+        try {
+          sessionStorage.setItem('njoy_feed_cache', JSON.stringify(
+            fetchedPosts.slice(0, 20).map(p => ({ ...p, createdAt: p.createdAt.toISOString() }))
+          ));
+        } catch (e) {
+          console.error('Cache save error:', e);
+        }
+      }, { timeout: 2000 });
     }, (error) => {
       console.error('Error fetching posts:', error);
       setLoading(false);
@@ -119,8 +155,52 @@ const Home: React.FC = () => {
     setPosts(prev => prev.filter(p => p.id !== postId));
   }, []);
 
+  // Save scroll position on unmount, restore on mount (Fix #11)
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const savedPos = sessionStorage.getItem('njoy_feed_scroll');
+    if (savedPos) {
+      requestAnimationFrame(() => {
+        container.scrollTop = parseInt(savedPos, 10);
+      });
+    }
+    return () => {
+      if (container) {
+        sessionStorage.setItem('njoy_feed_scroll', String(container.scrollTop));
+      }
+    };
+  }, []);
+
+  // Failsafe: if loading state stuck for over 1.5 seconds, clear it
+  useEffect(() => {
+    if (!loading) return;
+    const timeout = setTimeout(() => {
+      console.warn('Feed loading timeout - forcing render');
+      setLoading(false);
+    }, 1500);
+    return () => clearTimeout(timeout);
+  }, [loading]);
+
+  // Prefetch privacy data of users the current user follows (background optimization)
+  useEffect(() => {
+    if (!userProfile?.following?.length) return;
+    requestIdleCallback(() => {
+      userProfile.following.forEach(async (uid) => {
+        if (!privateUserCacheRef.current.has(uid)) {
+          try {
+            const userDoc = await getDoc(doc(db, 'users', uid));
+            if (userDoc.exists()) {
+              privateUserCacheRef.current.set(uid, userDoc.data().isPrivate === true);
+            }
+          } catch {}
+        }
+      });
+    }, { timeout: 5000 });
+  }, [userProfile?.following]);
+
   return (
-    <div className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background">
+    <div ref={scrollContainerRef} className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background">
       <Header />
       
       {/* Stories */}
@@ -129,10 +209,9 @@ const Home: React.FC = () => {
       {/* Posts */}
       <div className="max-w-lg mx-auto">
         {loading ? (
-          <div className="space-y-4 p-4">
-            {[1, 2, 3].map((i) => (
-              <PostSkeleton key={i} />
-            ))}
+          <div className="flex flex-col items-center justify-center py-12 px-4">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-sm text-muted-foreground">Loading posts...</p>
           </div>
         ) : visiblePosts.length === 0 ? (
           <motion.div
@@ -152,16 +231,13 @@ const Home: React.FC = () => {
           </motion.div>
         ) : (
           <div className="space-y-4 pb-4">
-            {visiblePosts.map((post, index) => (
-              <motion.div
+            {visiblePosts.map((post) => (
+              <div
                 key={post.id}
                 id={`post-${post.id}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
               >
                 <PostCard post={post} onDelete={handlePostDelete} />
-              </motion.div>
+              </div>
             ))}
           </div>
         )}

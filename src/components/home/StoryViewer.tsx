@@ -96,27 +96,41 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   useEffect(() => {
     if (showViewers || showMentionInput || showLikers) return; // Pause timer when viewing panels
     
-    const duration = currentStory?.mediaType === 'video' ? 15000 : 5000;
-    const interval = 50;
+    const duration = currentStory?.mediaType === 'video' ? 15000 : 10000; // Minimum 10 seconds for images, 15 for videos
+    const interval = 16; // 60fps for smooth progress
     let elapsed = 0;
+    let animationId: number;
 
-    const timer = setInterval(() => {
-      if (isPausedRef.current) return; // Skip when long-pressed
+    const updateProgress = () => {
+      if (isPausedRef.current) {
+        animationId = requestAnimationFrame(updateProgress);
+        return;
+      }
+
       elapsed += interval;
       setProgress((elapsed / duration) * 100);
 
       if (elapsed >= duration) {
+        // Story ended - stop music before moving to next
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          audioRef.current = null;
+        }
+
         if (currentIndex < localStories.length - 1) {
           setCurrentIndex(prev => prev + 1);
           setProgress(0);
-          elapsed = 0;
         } else {
           onClose();
         }
+      } else {
+        animationId = requestAnimationFrame(updateProgress);
       }
-    }, interval);
+    };
 
-    return () => clearInterval(timer);
+    animationId = requestAnimationFrame(updateProgress);
+    return () => cancelAnimationFrame(animationId);
   }, [currentIndex, localStories.length, onClose, currentStory, showViewers, showMentionInput, showLikers]);
 
   useEffect(() => {
@@ -130,6 +144,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     // Stop previous audio
     if (audioRef.current) {
       audioRef.current.pause();
+      audioRef.current.currentTime = 0;
       audioRef.current = null;
     }
 
@@ -148,22 +163,65 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
 
         const audio = new Audio(url);
         audio.volume = 0.4;
-        audio.loop = true;
+        audio.loop = false;
         audio.muted = muted;
-        // Use interaction-driven play: retry on failure
-        const tryPlay = () => {
-          audio.play().catch(() => {
-            const retryPlay = () => {
-              audio.play().catch(() => {});
+        audio.preload = 'auto'; // Preload for instant playback
+        
+        const startTime = currentStory.music!.startTime || 0;
+        const endTime = currentStory.music!.endTime;
+        
+        // Wait for metadata before seeking
+        audio.addEventListener('loadedmetadata', () => {
+        const storyDuration = currentStory.mediaType === 'video' ? 15 : 10;
+        const musicDuration = endTime ? (endTime - startTime) : storyDuration;
+        const stopAfter = Math.min(musicDuration, storyDuration) * 1000;
+        
+        // Use RAF for smooth playback monitoring
+        let rafId: number | null = null;
+        if (endTime) {
+          const checkTime = () => {
+            if (audio.currentTime >= endTime) {
+              audio.pause();
+              if (rafId) cancelAnimationFrame(rafId);
+            } else if (audioRef.current === audio) {
+              rafId = requestAnimationFrame(checkTime);
+            }
+          };
+          audio.addEventListener('playing', () => {
+            rafId = requestAnimationFrame(checkTime);
+          }, { once: true });
+        }
+        
+        const stopTimeout = setTimeout(() => {
+          if (audioRef.current === audio) {
+            audio.pause();
+            audio.currentTime = startTime;
+          }
+          if (rafId) cancelAnimationFrame(rafId);
+        }, stopAfter);
+        
+        const tryPlay = async () => {
+          audio.play().casync () => {
+          try {
+            await audio.play();
+          } catch {
+            const retryPlay = async () => {
+              try { await audio.play(); } catch {}
               document.removeEventListener('click', retryPlay);
               document.removeEventListener('touchstart', retryPlay);
             };
             document.addEventListener('click', retryPlay, { once: true });
             document.addEventListener('touchstart', retryPlay, { once: true });
-          });
+          }
         };
+        
+        audio.load();
         tryPlay();
         audioRef.current = audio;
+        
+        audio.addEventListener('ended', () => {
+          clearTimeout(stopTimeout);
+          if (rafId) cancelAnimationFrame(rafId
       };
       startAudio();
     }
@@ -171,10 +229,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
+        audioRef.current.currentTime = 0;
         audioRef.current = null;
       }
     };
-  }, [currentIndex, currentStory?.music?.previewUrl]);
+  }, [currentIndex, currentStory?.music?.previewUrl, muted]);
 
   // Mute/unmute music audio when muted state changes
   useEffect(() => {
@@ -544,6 +603,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   }, [currentStory, userProfile, toast]);
 
   const goNext = () => {
+    // Stop music when moving to next story
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    
     if (currentIndex < localStories.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setProgress(0);
@@ -556,6 +622,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   };
 
   const goPrev = () => {
+    // Stop music when moving to previous story
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
       setProgress(0);

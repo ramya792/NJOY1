@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Send } from 'lucide-react';
+import { X, Loader2, Send, Smile } from 'lucide-react';
+import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { collection, query, orderBy, getDocs, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -32,6 +33,7 @@ const ReelComments: React.FC<ReelCommentsProps> = ({ reelId, reelOwnerId, commen
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   useEffect(() => {
     const fetchComments = async () => {
@@ -97,11 +99,16 @@ const ReelComments: React.FC<ReelCommentsProps> = ({ reelId, reelOwnerId, commen
 
       setCommentText('');
       onCommentAdded();
+      setShowEmojiPicker(false);
     } catch (error) {
       console.error('Error posting comment:', error);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleEmojiSelect = (emojiData: EmojiClickData) => {
+    setCommentText((prev) => prev + emojiData.emoji);
   };
 
   return (
@@ -145,7 +152,7 @@ const ReelComments: React.FC<ReelCommentsProps> = ({ reelId, reelOwnerId, commen
                 )}
               </button>
               <div className="flex-1">
-                <p className="text-sm">
+                <p className="text-sm emoji-text">
                   <span className="font-semibold mr-1">{comment.username}</span>
                   {comment.text}
                 </p>
@@ -159,7 +166,7 @@ const ReelComments: React.FC<ReelCommentsProps> = ({ reelId, reelOwnerId, commen
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-border flex items-center gap-2">
+      <div className="p-4 border-t border-border flex items-center gap-2 relative">
         <div className="w-8 h-8 rounded-full overflow-hidden bg-secondary flex-shrink-0">
           {userProfile?.photoURL ? (
             <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" />
@@ -169,13 +176,41 @@ const ReelComments: React.FC<ReelCommentsProps> = ({ reelId, reelOwnerId, commen
             </div>
           )}
         </div>
-        <Input
-          value={commentText}
-          onChange={(e) => setCommentText(e.target.value)}
-          placeholder="Add a comment..."
-          className="flex-1 h-9 text-sm rounded-full"
-          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-        />
+        <div className="flex-1 relative">
+          <Input
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            placeholder="Add a comment..."
+            className="w-full h-9 text-sm rounded-full pr-10 emoji-text"
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
+          />
+          <button 
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-secondary rounded-full"
+          >
+            <Smile className="w-4 h-4 text-muted-foreground" />
+          </button>
+          <AnimatePresence>
+            {showEmojiPicker && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute bottom-12 right-0 z-50"
+              >
+                <EmojiPicker 
+                  onEmojiClick={handleEmojiSelect}
+                  theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                  width={300}
+                  height={350}
+                  previewConfig={{ showPreview: false }}
+                  searchPlaceHolder="Search emoji..."
+                  skinTonesDisabled
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
         <button
           onClick={handleSubmit}
           disabled={!commentText.trim() || submitting}

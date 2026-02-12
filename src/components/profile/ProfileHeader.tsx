@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { X } from 'lucide-react';
+import { X, UserPlus } from 'lucide-react';
 import FollowersModal from './FollowersModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
@@ -21,13 +21,15 @@ interface UserProfile {
 interface ProfileHeaderProps {
   profile: UserProfile;
   onEditClick: () => void;
+  onShareClick?: () => void;
   isOwnProfile?: boolean;
   onProfileUpdate?: () => void;
 }
 
 const ProfileHeader: React.FC<ProfileHeaderProps> = ({ 
   profile, 
-  onEditClick, 
+  onEditClick,
+  onShareClick,
   isOwnProfile = true,
   onProfileUpdate
 }) => {
@@ -67,11 +69,12 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
   return (
     <>
-      <div className="max-w-lg mx-auto px-4 py-6">
-        <div className="flex items-start gap-6 mb-4">
+      <div className="max-w-lg mx-auto px-4 py-3">
+        {/* Top row: Avatar + Stats side by side */}
+        <div className="flex items-center gap-4 mb-3">
           {/* Avatar */}
           <div 
-            className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-secondary flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+            className="w-[88px] h-[88px] rounded-full overflow-hidden bg-secondary flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
             onClick={handleAvatarTap}
           >
             {localProfile.photoURL ? (
@@ -87,48 +90,64 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             )}
           </div>
 
-          {/* Stats */}
-          <div className="flex-1">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="text-center">
-                <p className="font-semibold">{localProfile.postsCount || 0}</p>
-                <p className="text-sm text-muted-foreground">posts</p>
-              </div>
-              <div 
-                className="text-center cursor-pointer hover:opacity-70 transition-opacity"
-                onClick={() => setShowFollowers(true)}
-              >
-                <p className="font-semibold">{uniqueFollowers.length}</p>
-                <p className="text-sm text-muted-foreground">followers</p>
-              </div>
-              <div 
-                className="text-center cursor-pointer hover:opacity-70 transition-opacity"
-                onClick={() => setShowFollowing(true)}
-              >
-                <p className="font-semibold">{uniqueFollowing.length}</p>
-                <p className="text-sm text-muted-foreground">following</p>
-              </div>
+          {/* Stats row */}
+          <div className="flex-1 flex items-center justify-evenly">
+            <div className="text-center">
+              <p className="font-bold text-base leading-tight">{localProfile.postsCount || 0}</p>
+              <p className="text-xs text-muted-foreground leading-tight mt-0.5">posts</p>
             </div>
+            <button 
+              className="text-center hover:opacity-70 transition-opacity"
+              onClick={() => setShowFollowers(true)}
+            >
+              <p className="font-bold text-base leading-tight">{uniqueFollowers.length}</p>
+              <p className="text-xs text-muted-foreground leading-tight mt-0.5">followers</p>
+            </button>
+            <button 
+              className="text-center hover:opacity-70 transition-opacity"
+              onClick={() => setShowFollowing(true)}
+            >
+              <p className="font-bold text-base leading-tight">{uniqueFollowing.length}</p>
+              <p className="text-xs text-muted-foreground leading-tight mt-0.5">following</p>
+            </button>
           </div>
         </div>
 
-        {/* Bio */}
-        <div className="mb-4">
-          <p className="font-semibold text-sm">{localProfile.displayName || localProfile.username}</p>
+        {/* Bio section */}
+        <div className="mb-3">
+          <p className="font-semibold text-sm leading-tight">{localProfile.displayName || localProfile.username}</p>
           {localProfile.bio && (
-            <p className="text-sm whitespace-pre-wrap">{localProfile.bio}</p>
+            <p className="text-sm whitespace-pre-wrap mt-1 text-foreground/90 leading-tight">{localProfile.bio}</p>
           )}
         </div>
 
-        {/* Edit Button */}
+        {/* Action buttons - side by side like Instagram */}
         {isOwnProfile && (
-          <Button
-            onClick={onEditClick}
-            variant="secondary"
-            className="w-full font-semibold"
-          >
-            Edit profile
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={onEditClick}
+              variant="secondary"
+              size="sm"
+              className="flex-1 font-semibold h-8 text-sm px-3"
+            >
+              Edit profile
+            </Button>
+            <Button
+              onClick={onShareClick}
+              variant="secondary"
+              size="sm"
+              className="flex-1 font-semibold h-8 text-sm px-3"
+            >
+              Share profile
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 w-8 p-0 flex-shrink-0"
+            >
+              <UserPlus className="w-4 h-4" />
+            </Button>
+          </div>
         )}
       </div>
 

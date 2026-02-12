@@ -376,9 +376,9 @@ const UserProfile: React.FC = () => {
       </header>
 
       {/* Profile Info */}
-      <div className="max-w-lg mx-auto px-4 py-6">
-        <div className="flex items-start gap-6 mb-4">
-          <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-secondary flex-shrink-0 relative">
+      <div className="max-w-lg mx-auto px-4 py-3">
+        <div className="flex items-center gap-4 mb-3">
+          <div className="w-[88px] h-[88px] rounded-full overflow-hidden bg-secondary flex-shrink-0 relative">
             {profile.photoURL ? (
               <img src={profile.photoURL} alt={profile.username} className="w-full h-full object-cover" />
             ) : (
@@ -392,35 +392,35 @@ const UserProfile: React.FC = () => {
           </div>
 
           <div className="flex-1">
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex items-center justify-evenly">
               <div className="text-center">
-                <p className="font-semibold">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
-                <p className="text-sm text-muted-foreground">posts</p>
+                <p className="font-bold text-base leading-tight">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
+                <p className="text-xs text-muted-foreground leading-tight mt-0.5">posts</p>
               </div>
               <div 
                 className={`text-center ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
                 onClick={() => canViewContent && setShowFollowers(true)}
               >
-                <p className="font-semibold">{canViewContent ? uniqueFollowers.length : '—'}</p>
-                <p className="text-sm text-muted-foreground">followers</p>
+                <p className="font-bold text-base leading-tight">{canViewContent ? uniqueFollowers.length : '—'}</p>
+                <p className="text-xs text-muted-foreground leading-tight mt-0.5">followers</p>
               </div>
               <div 
                 className={`text-center ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
                 onClick={() => canViewContent && setShowFollowing(true)}
               >
-                <p className="font-semibold">{canViewContent ? uniqueFollowing.length : '—'}</p>
-                <p className="text-sm text-muted-foreground">following</p>
+                <p className="font-bold text-base leading-tight">{canViewContent ? uniqueFollowing.length : '—'}</p>
+                <p className="text-xs text-muted-foreground leading-tight mt-0.5">following</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mb-4">
+        <div className="mb-3">
           <div className="flex items-center gap-2">
-            <p className="font-semibold text-sm">{profile.displayName || profile.username}</p>
+            <p className="font-semibold text-sm leading-tight">{profile.displayName || profile.username}</p>
             {profile.isPrivate && <Lock className="w-3 h-3 text-muted-foreground" />}
           </div>
-          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap">{profile.bio}</p>}
+          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap mt-1 leading-tight text-foreground/90">{profile.bio}</p>}
         </div>
 
         {/* Action Buttons */}
@@ -428,15 +428,16 @@ const UserProfile: React.FC = () => {
           <Button
             onClick={handleFollowAction}
             disabled={actionLoading || followStatus === 'requested'}
-            className={`flex-1 ${followStatus === 'following' || followStatus === 'requested' ? '' : 'btn-gradient'}`}
+            className={`flex-1 h-8 text-sm ${followStatus === 'following' || followStatus === 'requested' ? '' : 'btn-gradient'}`}
             variant={followStatus === 'following' || followStatus === 'requested' ? 'secondary' : 'default'}
+            size="sm"
           >
             {actionLoading ? (
               <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
             ) : followStatus === 'following' ? 'Following' : followStatus === 'requested' ? 'Requested' : 'Follow'}
           </Button>
           {canViewContent && (
-            <Button onClick={handleMessage} variant="secondary" className="flex-1">
+            <Button onClick={handleMessage} variant="secondary" size="sm" className="flex-1 h-8 text-sm">
               <MessageCircle className="w-4 h-4 mr-2" />
               Message
             </Button>

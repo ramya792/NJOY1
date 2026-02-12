@@ -24,9 +24,39 @@ const Reels: React.FC = () => {
   const { userProfile } = useAuth();
   const [searchParams] = useSearchParams();
   const targetReelId = searchParams.get('id');
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [reels, setReels] = useState<Reel[]>(() => {
+    // Restore cached reels for instant display
+    try {
+      const cached = sessionStorage.getItem('njoy_reels_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.map((r: any) => ({
+          ...r,
+          createdAt: new Date(r.createdAt)
+        }));
+      }
+    } catch (e) {
+      console.error('Reels cache restore error:', e);
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('njoy_reels_cache');
+      return !cached || cached === '[]';
+    } catch {
+      return true;
+    }
+  });
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    // Restore scroll position
+    try {
+      const savedIndex = sessionStorage.getItem('njoy_reels_index');
+      return savedIndex ? parseInt(savedIndex, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [privateUsers, setPrivateUsers] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const isAnimatingRef = useRef(false);
@@ -78,6 +108,18 @@ const Reels: React.FC = () => {
       setPrivateUsers(privates);
       
       setReels(fetchedReels);
+      
+      // Cache reels for instant restore (background)
+      requestIdleCallback(() => {
+        try {
+          sessionStorage.setItem('njoy_reels_cache', JSON.stringify(
+            fetchedReels.slice(0, 30).map(r => ({ ...r, createdAt: r.createdAt.toISOString() }))
+          ));
+        } catch (e) {
+          console.error('Reels cache save error:', e);
+        }
+      }, { timeout: 2000 });
+      
       setLoading(false);
     });
 

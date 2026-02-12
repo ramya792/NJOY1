@@ -40,6 +40,8 @@ const MessageListItem: React.FC<MessageListItemProps> = ({ conversation, onDelet
   const navigate = useNavigate();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showHideDialog, setShowHideDialog] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   const handleDelete = () => {
     onDelete?.(conversation.id);
@@ -54,40 +56,56 @@ const MessageListItem: React.FC<MessageListItemProps> = ({ conversation, onDelet
   return (
     <>
       <div className="flex items-center gap-3 w-full p-4 hover:bg-secondary transition-colors group">
+        {/* Avatar - opens profile */}
         <button
-          onClick={() => navigate(`/messages/${conversation.id}`)}
-          className="flex items-center gap-3 flex-1 min-w-0 text-left"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/user/${conversation.participantId}`);
+          }}
+          className="relative w-14 h-14 rounded-full overflow-hidden bg-secondary flex-shrink-0 hover:ring-2 hover:ring-primary transition-all"
         >
-          <div className="relative w-14 h-14 rounded-full overflow-hidden bg-secondary flex-shrink-0">
-            {conversation.participantPhoto ? (
+          {conversation.participantPhoto && !imageError ? (
+            <>
+              {!imageLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
               <img
                 src={conversation.participantPhoto}
                 alt={conversation.participantName}
-                className="w-full h-full object-cover"
+                className={`w-full h-full object-cover transition-opacity duration-200 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                loading="lazy"
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setImageError(true)}
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-xl font-semibold text-muted-foreground">
-                {conversation.participantName?.charAt(0).toUpperCase()}
-              </div>
-            )}
-            {conversation.unread && (
-              <div className="absolute bottom-0 right-0 w-4 h-4 bg-primary rounded-full border-2 border-background" />
-            )}
-          </div>
-          
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <p className={`font-semibold text-sm ${conversation.unread ? '' : 'text-foreground'}`}>
-                {conversation.participantName}
-              </p>
-              <span className="text-xs text-muted-foreground">
-                {formatDistanceToNow(conversation.lastMessageTime, { addSuffix: false })}
-              </span>
+            </>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-xl font-semibold text-muted-foreground bg-gradient-to-br from-primary/20 to-primary/10">
+              {conversation.participantName?.charAt(0).toUpperCase()}
             </div>
-            <p className={`text-sm truncate ${conversation.unread ? 'font-medium' : 'text-muted-foreground'}`}>
-              {conversation.lastMessage}
+          )}
+          {conversation.unread && (
+            <div className="absolute bottom-0 right-0 w-4 h-4 bg-primary rounded-full border-2 border-background" />
+          )}
+        </button>
+
+        {/* Name/message - opens chat */}
+        <button
+          onClick={() => navigate(`/messages/${conversation.id}`)}
+          className="flex-1 min-w-0 text-left"
+        >
+          <div className="flex items-center justify-between">
+            <p className={`font-semibold text-sm ${conversation.unread ? '' : 'text-foreground'}`}>
+              {conversation.participantName}
             </p>
+            <span className="text-xs text-muted-foreground">
+              {formatDistanceToNow(conversation.lastMessageTime, { addSuffix: false })}
+            </span>
           </div>
+          <p className={`text-sm truncate ${conversation.unread ? 'font-medium' : 'text-muted-foreground'}`}>
+            {conversation.lastMessage}
+          </p>
         </button>
         
         <DropdownMenu>

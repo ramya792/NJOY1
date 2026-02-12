@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Send, Phone, Video, Info, Image, Smile, Paperclip, FileText, X, Loader2, PhoneOff,
-  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users, User, Palette
+  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users, User, Palette, Pencil, Check
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { 
@@ -65,6 +65,8 @@ interface Message {
   seen: boolean;
   deletedFor?: string[];
   saved?: boolean;
+  editedAt?: Date;
+  isEdited?: boolean;
 }
 
 interface Participant {
@@ -112,6 +114,12 @@ const ChatRoom: React.FC = () => {
   const [participantFollowing, setParticipantFollowing] = useState<string[]>([]);
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [wallpaper, setWallpaper] = useState<WallpaperConfig>({ type: 'none', value: '' });
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [editText, setEditText] = useState('');
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const isUserScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load wallpaper on mount
   useEffect(() => {
@@ -149,10 +157,41 @@ const ChatRoom: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showEmojiPicker]);
 
-  // Scroll to bottom
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Scroll to bottom - instant for new messages, smooth for user actions
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    requestAnimationFrame(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTo({
+          top: messagesContainerRef.current.scrollHeight,
+          behavior: behavior,
+        });
+      }
+    });
+  }, []);
+
+  // Track if user is near bottom to auto-scroll on new messages - optimized with debouncing
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    
+    // Mark that user is actively scrolling
+    isUserScrollingRef.current = true;
+    
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    
+    // Debounce scroll detection
+    scrollTimeoutRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+      
+      if (messagesContainerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+        // More lenient threshold for auto-scroll (200px from bottom)
+        isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 200;
+      }
+    }, 100);
+  }, []);
 
   // Initialize conversation
   useEffect(() => {
@@ -266,11 +305,15 @@ const ChatRoom: React.FC = () => {
           id: docSnap.id,
           ...docSnap.data(),
           createdAt: docSnap.data().createdAt?.toDate() || new Date(),
+          editedAt: docSnap.data().editedAt?.toDate() || undefined,
         }))
         .filter((msg: Message) => !msg.deletedFor?.includes(userProfile.uid)) as Message[];
       
       setMessages(fetchedMessages);
-      setTimeout(scrollToBottom, 100);
+      // Only auto-scroll if user is near bottom and not actively scrolling
+      if (isNearBottomRef.current && !isUserScrollingRef.current) {
+        scrollToBottom('smooth');
+      }
     });
 
     return () => unsubscribe();
@@ -431,7 +474,7 @@ const ChatRoom: React.FC = () => {
       seen: false,
     };
     setMessages(prev => [...prev, optimisticMessage]);
-    setTimeout(scrollToBottom, 50);
+    requestAnimationFrame(() => scrollToBottom());
 
     try {
       let convId = currentConversationId;
@@ -483,8 +526,81 @@ const ChatRoom: React.FC = () => {
   };
 
   const handleEmojiSelect = (emojiData: EmojiClickData) => {
-    setNewMessage((prev) => prev + emojiData.emoji);
+    if (editingMessage) {
+      setEditText((prev) => prev + emojiData.emoji);
+    } else {
+      setNewMessage((prev) => prev + emojiData.emoji);
+    }
+  };
+
+  // Check if message can be edited (within 60 seconds)
+  const canEditMessage = useCallback((message: Message): boolean => {
+    if (!userProfile || message.senderId !== userProfile.uid) return false;
+    if (message.mediaUrl) return false; // Can't edit media messages
+    const now = new Date().getTime();
+    const messageTime = message.createdAt.getTime();
+    return (now - messageTime) < 60000; // 60 seconds
+  }, [userProfile]);
+
+  const handleStartEdit = useCallback((message: Message) => {
+    setEditingMessage(message);
+    setEditText(message.text);
     setShowEmojiPicker(false);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setEditText('');
+  }, []);
+
+  const handleSaveEdit = async () => {
+    if (!editingMessage || !editText.trim() || !currentConversationId) return;
+    if (!canEditMessage(editingMessage)) {
+      toast({
+        title: 'Cannot edit',
+        description: 'Edit window (60 seconds) has expired.',
+        variant: 'destructive',
+      });
+      handleCancelEdit();
+      return;
+    }
+
+    const trimmedText = editText.trim();
+    const oldText = editingMessage.text;
+    
+    // Optimistic update
+    setMessages(prev => prev.map(m => 
+      m.id === editingMessage.id ? { ...m, text: trimmedText, isEdited: true, editedAt: new Date() } : m
+    ));
+    handleCancelEdit();
+
+    try {
+      const messageRef = doc(db, 'conversations', currentConversationId, 'messages', editingMessage.id);
+      await updateDoc(messageRef, {
+        text: trimmedText,
+        isEdited: true,
+        editedAt: serverTimestamp(),
+      });
+
+      // Update lastMessage in conversation if this was the latest message
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.id === editingMessage.id) {
+        await updateDoc(doc(db, 'conversations', currentConversationId), {
+          lastMessage: trimmedText,
+        });
+      }
+    } catch (error) {
+      console.error('Error editing message:', error);
+      // Revert optimistic update
+      setMessages(prev => prev.map(m => 
+        m.id === editingMessage.id ? { ...m, text: oldText, isEdited: editingMessage.isEdited, editedAt: editingMessage.editedAt } : m
+      ));
+      toast({
+        title: 'Edit failed',
+        description: 'Could not edit message. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleClearChat = async () => {
@@ -843,7 +959,7 @@ const ChatRoom: React.FC = () => {
       }
     }
     return (
-      <p className="text-sm" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+      <p className="text-sm emoji-text" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
         {renderTextWithLinks(message.text)}
       </p>
     );
@@ -957,7 +1073,18 @@ const ChatRoom: React.FC = () => {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-2" style={{ WebkitOverflowScrolling: 'touch', minHeight: 0, ...getWallpaperStyle(wallpaper) }}>
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-2 chat-messages" 
+        style={{ 
+          minHeight: 0,
+          scrollBehavior: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          willChange: 'scroll-position',
+          ...getWallpaperStyle(wallpaper) 
+        }}
+      >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
@@ -981,6 +1108,7 @@ const ChatRoom: React.FC = () => {
         ) : (
           messages.map((message) => {
             const isMine = message.senderId === userProfile?.uid;
+            const editable = canEditMessage(message);
             
             return (
               <div
@@ -991,12 +1119,23 @@ const ChatRoom: React.FC = () => {
                   <DropdownMenuTrigger asChild>
                     <div className={`max-w-[75%] px-4 py-2 cursor-pointer ${isMine ? 'message-sent' : 'message-received'}`} style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {renderMessage(message)}
-                      <p className={`text-xs mt-1 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                        {formatDistanceToNow(message.createdAt, { addSuffix: false })}
-                      </p>
+                      <div className={`flex items-center gap-1 mt-1 ${isMine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                        <p className="text-xs">
+                          {formatDistanceToNow(message.createdAt, { addSuffix: false })}
+                        </p>
+                        {message.isEdited && (
+                          <span className="text-xs italic">· edited</span>
+                        )}
+                      </div>
                     </div>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent>
+                    {editable && (
+                      <DropdownMenuItem onClick={() => handleStartEdit(message)}>
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={() => handleSaveMessage(message)}>
                       <Bookmark className="w-4 h-4 mr-2" />
                       {userProfile?.savedPosts?.includes(`msg_${currentConversationId}_${message.id}`) ? 'Unsave' : 'Save'}
@@ -1014,6 +1153,20 @@ const ChatRoom: React.FC = () => {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Edit message banner */}
+      {editingMessage && (
+        <div className="flex-shrink-0 border-t border-border px-4 py-2 bg-secondary/50 flex items-center gap-3">
+          <Pencil className="w-4 h-4 text-primary flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-primary font-medium">Editing message</p>
+            <p className="text-xs text-muted-foreground truncate">{editingMessage.text}</p>
+          </div>
+          <button onClick={handleCancelEdit} className="p-1 hover:bg-secondary rounded-full">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <div className="flex-shrink-0 border-t border-border p-2 bg-background" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}>
@@ -1089,11 +1242,22 @@ const ChatRoom: React.FC = () => {
             
             <div className="flex-1 relative">
               <Input
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                placeholder="Message..."
-                className="pr-10 rounded-full"
+                value={editingMessage ? editText : newMessage}
+                onChange={(e) => editingMessage ? setEditText(e.target.value) : setNewMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    if (editingMessage) {
+                      handleSaveEdit();
+                    } else {
+                      handleSend();
+                    }
+                  }
+                  if (e.key === 'Escape' && editingMessage) {
+                    handleCancelEdit();
+                  }
+                }}
+                placeholder={editingMessage ? "Edit message..." : "Message..."}
+                className="pr-10 rounded-full emoji-text"
                 disabled={uploading}
               />
               <button 
@@ -1130,6 +1294,15 @@ const ChatRoom: React.FC = () => {
               <div className="p-2">
                 <Loader2 className="w-6 h-6 animate-spin text-primary" />
               </div>
+            ) : editingMessage ? (
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={handleSaveEdit}
+                disabled={!editText.trim()}
+                className="p-2 rounded-full text-primary disabled:opacity-50"
+              >
+                <Check className="w-6 h-6" />
+              </motion.button>
             ) : newMessage.trim() ? (
               <motion.button
                 whileTap={{ scale: 0.9 }}

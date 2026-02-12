@@ -38,11 +38,30 @@ const SearchTabs: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Explore feed state
-  const [exploreFeed, setExploreFeed] = useState<ExploreFeedItem[]>([]);
-  const [exploreLoading, setExploreLoading] = useState(true);
+  const [exploreFeed, setExploreFeed] = useState<ExploreFeedItem[]>(() => {
+    try {
+      const cached = sessionStorage.getItem('njoy_explore_cache');
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      console.error('Explore cache restore error:', e);
+    }
+    return [];
+  });
+  const [exploreLoading, setExploreLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('njoy_explore_cache');
+      return !cached || cached === '[]';
+    } catch {
+      return true;
+    }
+  });
   const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [visibleCount, setVisibleCount] = useState(30); // Lazy loading count
 
   // Private user filtering
   const [privateUsers, setPrivateUsers] = useState<Set<string>>(new Set());
@@ -133,18 +152,28 @@ const SearchTabs: React.FC = () => {
 
   // Fetch explore feed (posts + reels for grid)
   useEffect(() => {
+    if (!userProfile) return;
+    
     const fetchExploreFeed = async () => {
       setExploreLoading(true);
       try {
         const feedItems: ExploreFeedItem[] = [];
 
-        // Fetch recent posts
-        const postsQuery = query(
-          collection(db, 'posts'),
-          orderBy('createdAt', 'desc'),
-          limit(30)
-        );
-        const postsSnapshot = await getDocs(postsQuery);
+        // Fetch recent posts and reels in parallel for faster loading
+        const [postsSnapshot, reelsSnapshot] = await Promise.all([
+          getDocs(query(
+            collection(db, 'posts'),
+            orderBy('createdAt', 'desc'),
+            limit(30)
+          )),
+          getDocs(query(
+            collection(db, 'reels'),
+            orderBy('createdAt', 'desc'),
+            limit(20)
+          ))
+        ]);
+
+        // Process posts
         postsSnapshot.docs.forEach((doc) => {
           const data = doc.data();
           feedItems.push({
@@ -159,13 +188,7 @@ const SearchTabs: React.FC = () => {
           });
         });
 
-        // Fetch recent reels
-        const reelsQuery = query(
-          collection(db, 'reels'),
-          orderBy('createdAt', 'desc'),
-          limit(20)
-        );
-        const reelsSnapshot = await getDocs(reelsQuery);
+        // Process reels
         reelsSnapshot.docs.forEach((doc) => {
           const data = doc.data();
           feedItems.push({
@@ -188,6 +211,15 @@ const SearchTabs: React.FC = () => {
 
         setExploreFeed(feedItems);
 
+        // Cache for instant restore (background)
+        requestIdleCallback(() => {
+          try {
+            sessionStorage.setItem('njoy_explore_cache', JSON.stringify(feedItems.slice(0, 30)));
+          } catch (e) {
+            console.error('Explore cache save error:', e);
+          }
+        }, { timeout: 2000 });
+
         // Check privacy for all unique user IDs
         const uniqueUserIds = [...new Set(feedItems.map(item => item.userId))];
         await checkPrivateUsers(uniqueUserIds);
@@ -199,7 +231,40 @@ const SearchTabs: React.FC = () => {
     };
 
     fetchExploreFeed();
-  }, []);
+  }, [userProfile, checkPrivateUsers]);
+
+  // Save and restore scroll position
+  React.useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    
+    // Restore scroll position
+    const savedPos = sessionStorage.getItem('njoy_explore_scroll');
+    if (savedPos) {
+      requestAnimationFrame(() => {
+        container.scrollTop = parseInt(savedPos, 10);
+      });
+    }
+    
+    // Lazy loading on scroll
+    const handleScroll = () => {
+      if (!container) return;
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // Load more when within 500px of bottom
+      if (scrollHeight - scrollTop - clientHeight < 500) {
+        setVisibleCount(prev => Math.min(prev + 20, visibleExploreFeed.length));
+      }
+    };
+    
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    
+    return () => {
+      if (container) {
+        sessionStorage.setItem('njoy_explore_scroll', String(container.scrollTop));
+        container.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [visibleExploreFeed.length]);
 
   // Filter out private users' content from explore feed
   const visibleExploreFeed = useMemo(() => {
@@ -396,7 +461,7 @@ const SearchTabs: React.FC = () => {
   const showSearchResults = searchFocused || searchQuery.trim().length > 0;
 
   return (
-    <div className="h-full bg-background pb-4 overflow-x-hidden">
+    <div ref={scrollContainerRef} className="h-full bg-background pb-4 overflow-y-auto overflow-x-hidden">
       {/* Search Header */}
       <div className="sticky top-0 z-40 glass border-b border-border">
         <div className="p-4 max-w-lg mx-auto">
@@ -634,8 +699,9 @@ const SearchTabs: React.FC = () => {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-0.5">
-              {visibleExploreFeed.map((item, index) => {
+            <>
+              <div className="grid grid-cols-3 gap-0.5">
+                {visibleExploreFeed.slice(0, visibleCount).map((item, index) => {
                 // Every 10th item starting from 0 gets the large tile (2x2)
                 const isLargeTile = index % 10 === 0;
 
@@ -688,7 +754,15 @@ const SearchTabs: React.FC = () => {
                   </motion.button>
                 );
               })}
-            </div>
+              </div>
+              
+              {/* Load more indicator */}
+              {visibleCount < visibleExploreFeed.length && (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

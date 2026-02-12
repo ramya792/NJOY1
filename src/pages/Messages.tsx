@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Edit3, MessageCircle, Search, X, Loader2, UserPlus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Edit3, MessageCircle, Search, X, Loader2, UserPlus, PenSquare, Users, Bot, CheckCircle2 } from 'lucide-react';
 import { collection, query, where, orderBy, onSnapshot, getDocs, limit, deleteDoc, doc, writeBatch, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -9,6 +9,12 @@ import MessageListItem from '@/components/messages/MessageListItem';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Conversation {
   id: string;
@@ -39,6 +45,36 @@ const Messages: React.FC = () => {
   const [searchResults, setSearchResults] = useState<UserResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  const [showNewMessageDialog, setShowNewMessageDialog] = useState(false);
+  
+  // Scroll position memory
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isRestoringScroll = useRef(false);
+
+  // Scroll position memory - restore on mount
+  useEffect(() => {
+    const savedScroll = sessionStorage.getItem('njoy_messages_scroll');
+    if (savedScroll && scrollContainerRef.current && !loading) {
+      isRestoringScroll.current = true;
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = parseInt(savedScroll);
+          setTimeout(() => {
+            isRestoringScroll.current = false;
+          }, 100);
+        }
+      });
+    }
+  }, [loading]);
+
+  // Save scroll position before unmount
+  useEffect(() => {
+    return () => {
+      if (scrollContainerRef.current && !isRestoringScroll.current) {
+        sessionStorage.setItem('njoy_messages_scroll', scrollContainerRef.current.scrollTop.toString());
+      }
+    };
+  }, []);
 
   // Fetch hidden chats from user profile
   useEffect(() => {
@@ -236,10 +272,11 @@ const Messages: React.FC = () => {
               )}
             </button>
             <button
-              onClick={() => { setShowSearch(!showSearch); setSearchQuery(''); setSearchResults([]); }}
+              onClick={() => setShowNewMessageDialog(true)}
               className="p-2 rounded-full hover:bg-secondary transition-colors"
+              aria-label="New message"
             >
-              {showSearch ? <X className="w-5 h-5" /> : <Edit3 className="w-5 h-5" />}
+              <PenSquare className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -249,14 +286,15 @@ const Messages: React.FC = () => {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
+              data-compose-search
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search conversations or users..."
-              className="pl-9 h-10 rounded-full bg-secondary border-0"
+              placeholder={showSearch ? "Search users to start chat..." : "Search conversations..."}
+              className="pl-9 pr-10 h-10 rounded-full bg-secondary border-0"
             />
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => { setSearchQuery(''); if (showSearch) setShowSearch(false); }}
                 className="absolute right-3 top-1/2 -translate-y-1/2"
               >
                 <X className="w-4 h-4 text-muted-foreground" />
@@ -267,7 +305,7 @@ const Messages: React.FC = () => {
       </header>
 
       {/* Search Results - New Users */}
-      {searchQuery.trim() && searchResults.length > 0 && (
+      {searchQuery.trim() && (
         <div className="max-w-lg mx-auto border-b border-border">
           <p className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">
             Start new chat with
@@ -276,6 +314,10 @@ const Messages: React.FC = () => {
             <div className="flex items-center justify-center py-6">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
+          ) : searchResults.length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-4">
+              No users found for "{searchQuery}"
+            </p>
           ) : (
             searchResults.map((user) => (
               <button
@@ -285,9 +327,14 @@ const Messages: React.FC = () => {
               >
                 <div className="w-12 h-12 rounded-full overflow-hidden bg-secondary flex-shrink-0">
                   {user.photoURL ? (
-                    <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                    <img 
+                      src={user.photoURL} 
+                      alt="" 
+                      className="w-full h-full object-cover" 
+                      loading="lazy"
+                    />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-lg font-semibold text-muted-foreground">
+                    <div className="w-full h-full flex items-center justify-center text-lg font-semibold text-muted-foreground bg-gradient-to-br from-primary/20 to-primary/10">
                       {user.username?.charAt(0).toUpperCase()}
                     </div>
                   )}
@@ -303,7 +350,87 @@ const Messages: React.FC = () => {
       )}
 
       {/* Messages List */}
-      <div className="flex-1 overflow-y-auto max-w-lg mx-auto w-full">
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto max-w-lg mx-auto w-full"
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          willChange: 'scroll-position'
+        }}
+      >
+        {/* Group Chat & AI Options */}
+        {!showSearch && (
+          <div className="border-b border-border">
+            {/* Group Chat Option */}
+            <button
+              onClick={() => {
+                toast({
+                  title: 'Coming Soon',
+                  description: 'Group chat feature will be available soon!',
+                });
+              }}
+              className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors"
+            >
+              <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                <Users className="w-7 h-7 text-foreground" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-semibold text-base">Group chat</p>
+              </div>
+            </button>
+
+            {/* AI Chats Option */}
+            <button
+              onClick={() => {
+                toast({
+                  title: 'Coming Soon',
+                  description: 'AI chat feature will be available soon!',
+                });
+              }}
+              className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors"
+            >
+              <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                <Bot className="w-7 h-7 text-foreground" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-semibold text-base">AI chats</p>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {/* Suggested Section - Meta AI */}
+        {!showSearch && (
+          <div className="py-4 border-b border-border">
+            <h3 className="px-4 mb-3 text-base font-semibold text-foreground">Suggested</h3>
+            <button
+              onClick={() => {
+                toast({
+                  title: 'Meta AI Chat',
+                  description: 'AI assistant coming soon! Get help, ask questions, and more.',
+                });
+              }}
+              className="w-full flex items-center gap-4 px-4 py-3 hover:bg-secondary/50 transition-colors"
+            >
+              {/* Meta AI Gradient Icon */}
+              <div className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 relative">
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-400 opacity-90" />
+                <div className="absolute inset-2 rounded-full bg-background" />
+                <div className="relative w-full h-full rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-400 flex items-center justify-center">
+                  <Bot className="w-6 h-6 text-white" strokeWidth={2.5} />
+                </div>
+              </div>
+              <div className="flex-1 text-left">
+                <div className="flex items-center gap-1.5">
+                  <p className="font-semibold text-base">Meta AI</p>
+                  <CheckCircle2 className="w-4 h-4 text-blue-500 fill-blue-500" />
+                </div>
+                <p className="text-sm text-muted-foreground">AI</p>
+              </div>
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <div className="p-4 space-y-4">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -316,27 +443,25 @@ const Messages: React.FC = () => {
               </div>
             ))}
           </div>
-        ) : filteredConversations.length === 0 && !searchQuery ? (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col items-center justify-center py-20 px-4 text-center"
-          >
-            <div className="w-24 h-24 rounded-full bg-secondary flex items-center justify-center mb-6">
-              <MessageCircle className="w-12 h-12 text-muted-foreground" />
-            </div>
-            <h2 className="font-display font-semibold text-xl mb-2">
-              No Messages Yet
-            </h2>
-            <p className="text-muted-foreground max-w-xs mb-4">
-              Start a conversation by searching for users above.
-            </p>
-          </motion.div>
         ) : filteredConversations.length === 0 && searchQuery ? (
           <div className="py-12 text-center">
             <p className="text-muted-foreground">No conversations match "{searchQuery}"</p>
           </div>
-        ) : (
+        ) : filteredConversations.length === 0 && !searchQuery && !showSearch ? (
+          // Empty state when no conversations - options are already shown above
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col items-center justify-center py-12 px-4 text-center"
+          >
+            <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
+              <MessageCircle className="w-10 h-10 text-muted-foreground" />
+            </div>
+            <p className="text-muted-foreground max-w-xs">
+              Start a conversation by tapping the new message icon above.
+            </p>
+          </motion.div>
+        ) : filteredConversations.length > 0 ? (
           <div className="divide-y divide-border">
             {filteredConversations.map((conversation, index) => (
               <motion.div
@@ -355,6 +480,152 @@ const Messages: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* New Message Dialog */}
+      <Dialog open={showNewMessageDialog} onOpenChange={setShowNewMessageDialog}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-3 border-b">
+            <DialogTitle>New Message</DialogTitle>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto">
+            {/* Search */}
+            <div className="p-4 border-b">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search users..."
+                  className="pl-9 pr-10 h-10 rounded-full bg-secondary border-0"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    <X className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Group Chat Option */}
+            <button
+              onClick={() => {
+                setShowNewMessageDialog(false);
+                toast({
+                  title: 'Coming Soon',
+                  description: 'Group chat feature will be available soon!',
+                });
+              }}
+              className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors border-b"
+            >
+              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                <Users className="w-6 h-6 text-foreground" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-semibold text-sm">Create Group Chat</p>
+                <p className="text-xs text-muted-foreground">Chat with multiple people</p>
+              </div>
+            </button>
+
+            {/* AI Chat Option */}
+            <button
+              onClick={() => {
+                setShowNewMessageDialog(false);
+                toast({
+                  title: 'Coming Soon',
+                  description: 'AI chat feature will be available soon!',
+                });
+              }}
+              className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors border-b"
+            >
+              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                <Bot className="w-6 h-6 text-foreground" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-semibold text-sm">AI Chat Assistant</p>
+                <p className="text-xs text-muted-foreground">Get help from AI</p>
+              </div>
+            </button>
+
+            {/* Meta AI */}
+            <div className="p-4 border-b">
+              <h4 className="text-xs font-semibold text-muted-foreground mb-3">SUGGESTED</h4>
+              <button
+                onClick={() => {
+                  setShowNewMessageDialog(false);
+                  toast({
+                    title: 'Meta AI Chat',
+                    description: 'AI assistant coming soon!',
+                  });
+                }}
+                className="w-full flex items-center gap-3 p-2 hover:bg-secondary/50 transition-colors rounded-lg"
+              >
+                <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 relative">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-400" />
+                  <div className="absolute inset-1 rounded-full bg-background" />
+                  <div className="relative w-full h-full rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-400 flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-white" strokeWidth={2.5} />
+                  </div>
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold text-sm">Meta AI</p>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">AI assistant</p>
+                </div>
+              </button>
+            </div>
+
+            {/* Search Results */}
+            {searching ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              </div>
+            ) : searchResults.length > 0 ? (
+              <div className="divide-y">
+                {searchResults.map((user) => (
+                  <button
+                    key={user.uid}
+                    onClick={() => {
+                      setShowNewMessageDialog(false);
+                      navigate(`/chat/${user.uid}`);
+                    }}
+                    className="w-full flex items-center gap-3 p-4 hover:bg-secondary/50 transition-colors"
+                  >
+                    <div className="w-12 h-12 rounded-full overflow-hidden bg-secondary flex-shrink-0">
+                      {user.photoURL ? (
+                        <img 
+                          src={user.photoURL} 
+                          alt="" 
+                          className="w-full h-full object-cover" 
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-lg font-semibold text-muted-foreground bg-gradient-to-br from-primary/20 to-primary/10">
+                          {user.username?.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-left flex-1">
+                      <p className="font-semibold text-sm">{user.username}</p>
+                      <p className="text-xs text-muted-foreground">{user.displayName}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : searchQuery.length >= 3 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No users found
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

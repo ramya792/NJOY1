@@ -166,7 +166,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
         loop
         muted={muted}
         playsInline
-        preload={isActive ? 'auto' : 'none'}
+        preload={isActive ? 'auto' : 'metadata'}
         onClick={togglePlay}
         onDoubleClick={handleDoubleTap}
       />
@@ -201,8 +201,11 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
         )}
       </AnimatePresence>
 
+      {/* Bottom gradient for text readability */}
+      <div className="absolute bottom-0 left-0 right-0 h-60 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none z-[5]" />
+
       {/* Right side actions */}
-      <div className="absolute right-3 bottom-24 flex flex-col items-center gap-5 z-10">
+      <div className="absolute right-3 bottom-32 pb-safe flex flex-col items-center gap-4 z-10">
         <motion.button whileTap={{ scale: 0.8 }} onClick={handleLike} className="flex flex-col items-center gap-1">
           <Heart className={`w-7 h-7 ${liked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
           <span className="text-white text-xs font-medium">{likesCount}</span>
@@ -238,14 +241,14 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
       </div>
 
       {/* Bottom info - order: username → caption → hashtags */}
-      <div className="absolute left-3 right-16 bottom-6 z-10">
-        <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm block mb-1">
+      <div className="absolute left-3 right-16 bottom-24 pb-safe z-10">
+        <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm block mb-1 drop-shadow-lg">
           @{reel.username}
         </button>
         {(() => {
           const captionText = (reel.caption || '').replace(/#\w+/g, '').trim();
           return captionText ? (
-            <p className="text-white text-sm line-clamp-2 mb-1">{captionText}</p>
+            <p className="text-white text-sm line-clamp-2 mb-1 drop-shadow-lg">{captionText}</p>
           ) : null;
         })()}
         {(() => {
@@ -254,7 +257,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
           return (
             <div className="flex flex-wrap gap-1 mb-1">
               {hashtags.map((tag, i) => (
-                <span key={i} className="text-blue-400 text-xs font-medium">{tag}</span>
+                <span key={i} className="text-blue-400 text-xs font-medium drop-shadow-lg">{tag}</span>
               ))}
             </div>
           );
@@ -262,7 +265,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
         {reel.song && (
           <div className="flex items-center gap-2 mt-1">
             <div className="w-4 h-4 bg-white/20 rounded-full animate-spin" />
-            <span className="text-white text-xs truncate">🎵 {reel.song}</span>
+            <span className="text-white text-xs truncate drop-shadow-lg">🎵 {reel.song}</span>
           </div>
         )}
       </div>

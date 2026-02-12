@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Image, Film, X, Loader2, Download, Lock, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Image, Film, X, Loader2, Download, Lock, Sparkles, Smile } from 'lucide-react';
+import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -32,6 +33,8 @@ const CreatePost: React.FC = () => {
   const [allowDownload, setAllowDownload] = useState(true);
   const [showEditor, setShowEditor] = useState(false);
   const [appliedFilter, setAppliedFilter] = useState('none');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -55,6 +58,10 @@ const CreatePost: React.FC = () => {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleEmojiSelect = (emojiData: EmojiClickData) => {
+    setCaption((prev) => prev + emojiData.emoji);
   };
 
   const handleSubmit = async () => {
@@ -236,12 +243,40 @@ const CreatePost: React.FC = () => {
             transition={{ delay: 0.1 }}
             className="mt-6 space-y-4"
           >
-            <Textarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder="Write a caption..."
-              className="resize-none min-h-[100px]"
-            />
+            <div className="relative">
+              <Textarea
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                placeholder="Write a caption..."
+                className="resize-none min-h-[100px] pr-12 emoji-text"
+              />
+              <button 
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="absolute top-3 right-3 p-2 hover:bg-secondary rounded-full transition-colors"
+              >
+                <Smile className="w-5 h-5 text-muted-foreground" />
+              </button>
+              <AnimatePresence>
+                {showEmojiPicker && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute top-full right-0 mt-2 z-50"
+                  >
+                    <EmojiPicker 
+                      onEmojiClick={handleEmojiSelect}
+                      theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                      width={300}
+                      height={400}
+                      previewConfig={{ showPreview: false }}
+                      searchPlaceHolder="Search emoji..."
+                      skinTonesDisabled
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             {postType === 'reel' && (
               <Input

@@ -1,6 +1,7 @@
 import React, { useState, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal, Share2, Send, Copy, ExternalLink, X } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal, Share2, Send, Copy, ExternalLink, X, Smile } from 'lucide-react';
+import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { useNavigate } from 'react-router-dom';
 import { doc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, serverTimestamp, getDocs, query, orderBy, deleteDoc, where, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -95,6 +96,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
   const [shareSearchQuery, setShareSearchQuery] = useState('');
   const [shareSearchResults, setShareSearchResults] = useState<UserResult[]>([]);
   const [sharingToUser, setSharingToUser] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
   const isOwner = userProfile?.uid === post.userId;
 
@@ -422,6 +424,10 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
     }
   };
 
+  const handleEmojiSelect = (emojiData: EmojiClickData) => {
+    setCommentText((prev) => prev + emojiData.emoji);
+  };
+
   return (
     <article ref={ref} className="bg-card border-y border-border sm:border sm:rounded-xl overflow-hidden">
       {/* Header */}
@@ -504,7 +510,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
         <p className="font-semibold text-sm mb-1">{likesCount.toLocaleString()} {likesCount === 1 ? 'like' : 'likes'}</p>
 
         {post.caption && (
-          <p className="text-sm">
+          <p className="text-sm emoji-text">
             <span className="font-semibold mr-1">{post.username}</span>{post.caption}
           </p>
         )}
@@ -518,7 +524,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
         <AnimatePresence>
           {showComments && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 overflow-hidden">
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-3 relative">
                 <div className="w-7 h-7 rounded-full overflow-hidden bg-secondary flex-shrink-0">
                   {userProfile?.photoURL ? (
                     <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" />
@@ -528,7 +534,35 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
                     </div>
                   )}
                 </div>
-                <Input value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Add a comment..." className="h-9 text-sm flex-1" onKeyDown={(e) => e.key === 'Enter' && handleSubmitComment()} />
+                <div className="flex-1 relative">
+                  <Input value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Add a comment..." className="h-9 text-sm pr-10 emoji-text" onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSubmitComment()} />
+                  <button 
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-secondary rounded"
+                  >
+                    <Smile className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                  <AnimatePresence>
+                    {showEmojiPicker && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="absolute bottom-12 right-0 z-50"
+                      >
+                        <EmojiPicker 
+                          onEmojiClick={handleEmojiSelect}
+                          theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                          width={300}
+                          height={350}
+                          previewConfig={{ showPreview: false }}
+                          searchPlaceHolder="Search emoji..."
+                          skinTonesDisabled
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
                 <Button size="sm" variant="ghost" onClick={handleSubmitComment} disabled={!commentText.trim() || submittingComment} className="text-primary font-semibold text-sm px-2">
                   {submittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Post'}
                 </Button>
@@ -559,7 +593,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
                         )}
                       </button>
                       <div className="flex-1">
-                        <p className="text-sm"><span className="font-semibold mr-1">{comment.username}</span>{comment.text}</p>
+                        <p className="text-sm emoji-text"><span className="font-semibold mr-1">{comment.username}</span>{comment.text}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">{formatDistanceToNow(comment.createdAt, { addSuffix: true })}</p>
                       </div>
                     </div>
