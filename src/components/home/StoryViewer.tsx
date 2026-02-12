@@ -26,6 +26,8 @@ interface Story {
     title: string;
     artist: string;
     previewUrl?: string;
+    startTime?: number;
+    endTime?: number;
   } | null;
 }
 
@@ -172,6 +174,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         
         // Wait for metadata before seeking
         audio.addEventListener('loadedmetadata', () => {
+          audio.currentTime = startTime;
+        }, { once: true });
+
         const storyDuration = currentStory.mediaType === 'video' ? 15 : 10;
         const musicDuration = endTime ? (endTime - startTime) : storyDuration;
         const stopAfter = Math.min(musicDuration, storyDuration) * 1000;
@@ -306,7 +311,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
           return null;
         });
         const fetchedLikers = await Promise.all(likerPromises);
-        setLikers(fetchedLikers.filter((v): v is ViewerInfo => v !== null));
+        setLikers(fetchedLikers.filter((v) => v !== null) as ViewerInfo[]);
       } catch (error) {
         console.error('Error fetching likers:', error);
       } finally {
