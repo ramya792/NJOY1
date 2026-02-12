@@ -34,7 +34,6 @@ const CreatePost: React.FC = () => {
   const [showEditor, setShowEditor] = useState(false);
   const [appliedFilter, setAppliedFilter] = useState('none');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

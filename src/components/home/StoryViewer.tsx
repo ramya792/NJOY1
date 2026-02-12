@@ -201,7 +201,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         }, stopAfter);
         
         const tryPlay = async () => {
-          audio.play().casync () => {
           try {
             await audio.play();
           } catch {
@@ -221,7 +220,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         
         audio.addEventListener('ended', () => {
           clearTimeout(stopTimeout);
-          if (rafId) cancelAnimationFrame(rafId
+          if (rafId) cancelAnimationFrame(rafId);
+        });
       };
       startAudio();
     }
