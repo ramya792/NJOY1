@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search as SearchIcon, X, Users, Music, Hash, Film, Loader2, Youtube, Play, Heart } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
@@ -6,11 +6,14 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import UserSearchResult from './UserSearchResult';
 import ReelSearchResult from './ReelSearchResult';
 import MusicSearch from './MusicSearch';
 import { useNavigate } from 'react-router-dom';
 import PostCard from '@/components/home/PostCard';
+import ReelItem from '@/components/reels/ReelItem';
 
 interface SearchResult {
   type: 'user' | 'reel' | 'hashtag' | 'music';
@@ -61,6 +64,9 @@ const SearchTabs: React.FC = () => {
     }
   });
   const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [selectedReel, setSelectedReel] = useState<any>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [loadingModal, setLoadingModal] = useState(false);
   const [visibleCount, setVisibleCount] = useState(30); // Lazy loading count
 
   // Private user filtering
@@ -72,7 +78,7 @@ const SearchTabs: React.FC = () => {
   const [trendingSongs, setTrendingSongs] = useState<{ song: string; count: number }[]>([]);
 
   // Helper to check and cache private users
-  const checkPrivateUsers = async (userIds: string[]) => {
+  const checkPrivateUsers = useCallback(async (userIds: string[]) => {
     if (!userProfile) return;
     const following = new Set(userProfile.following || []);
     const unknownUserIds = userIds.filter(id =>
@@ -97,7 +103,7 @@ const SearchTabs: React.FC = () => {
       }
     });
     setPrivateUsers(privates);
-  };
+  }, [userProfile]);
 
   useEffect(() => {
     const fetchTrending = async () => {
@@ -233,6 +239,13 @@ const SearchTabs: React.FC = () => {
     fetchExploreFeed();
   }, [userProfile, checkPrivateUsers]);
 
+  // Filter out private users' content from explore feed
+  const visibleExploreFeed = useMemo(() => {
+    return exploreFeed.filter(item =>
+      item.userId === userProfile?.uid || !privateUsers.has(item.userId)
+    );
+  }, [exploreFeed, privateUsers, userProfile?.uid]);
+
   // Save and restore scroll position
   React.useEffect(() => {
     const container = scrollContainerRef.current;
@@ -265,13 +278,6 @@ const SearchTabs: React.FC = () => {
       }
     };
   }, [visibleExploreFeed.length]);
-
-  // Filter out private users' content from explore feed
-  const visibleExploreFeed = useMemo(() => {
-    return exploreFeed.filter(item =>
-      item.userId === userProfile?.uid || !privateUsers.has(item.userId)
-    );
-  }, [exploreFeed, privateUsers, userProfile?.uid]);
 
   useEffect(() => {
     const searchTimeout = setTimeout(async () => {
@@ -711,12 +717,27 @@ const SearchTabs: React.FC = () => {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: Math.min(index * 0.02, 0.5) }}
-                    onClick={() => {
-                      if (item.source === 'reel') {
-                        navigate(`/reels?id=${item.id}`);
-                      } else {
-                        // Navigate to home with post ID to highlight
-                        navigate(`/?post=${item.id}`);
+                    onClick={async () => {
+                      setLoadingModal(true);
+                      setModalOpen(true);
+                      try {
+                        if (item.source === 'reel') {
+                          const reelDoc = await getDoc(doc(db, 'reels', item.id));
+                          if (reelDoc.exists()) {
+                            setSelectedReel({ id: reelDoc.id, ...reelDoc.data() });
+                            setSelectedPost(null);
+                          }
+                        } else {
+                          const postDoc = await getDoc(doc(db, 'posts', item.id));
+                          if (postDoc.exists()) {
+                            setSelectedPost({ id: postDoc.id, ...postDoc.data() });
+                            setSelectedReel(null);
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Error loading content:', error);
+                      } finally {
+                        setLoadingModal(false);
                       }
                     }}
                     className={`relative group overflow-hidden bg-secondary ${
@@ -766,6 +787,39 @@ const SearchTabs: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Modal for viewing posts and reels */}
+      <Dialog open={modalOpen} onOpenChange={(open) => {
+        setModalOpen(open);
+        if (!open) {
+          setSelectedPost(null);
+          setSelectedReel(null);
+        }
+      }}>
+        <DialogContent className={`p-0 overflow-hidden border-0 ${
+          selectedReel ? 'max-w-[500px] h-[90vh] bg-black' : 'max-w-5xl max-h-[90vh] bg-background'
+        }`}>
+          <VisuallyHidden>
+            <DialogTitle>{selectedPost ? 'Post' : selectedReel ? 'Reel' : 'Content'}</DialogTitle>
+            <DialogDescription>
+              {selectedPost ? 'View post details' : selectedReel ? 'Watch reel' : 'View content'}
+            </DialogDescription>
+          </VisuallyHidden>
+          {loadingModal ? (
+            <div className="flex items-center justify-center h-96">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : selectedPost ? (
+            <div className="overflow-y-auto max-h-[90vh] bg-background">
+              <PostCard post={selectedPost} />
+            </div>
+          ) : selectedReel ? (
+            <div className="h-full w-full">
+              <ReelItem reel={selectedReel} isActive={true} />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

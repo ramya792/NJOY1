@@ -137,13 +137,12 @@ const StoriesBar: React.FC = () => {
           <div className="flex flex-col items-center flex-shrink-0">
             <div className="relative">
               {myStories.length > 0 ? (
-                <button onClick={() => setViewingStories(myStories)}>
-                  <StoryCircle
-                    imageUrl={userProfile?.photoURL || ''}
-                    hasUnviewed={false}
-                    size="lg"
-                  />
-                </button>
+                <StoryCircle
+                  imageUrl={userProfile?.photoURL || ''}
+                  hasUnviewed={false}
+                  size="lg"
+                  onClick={() => setViewingStories(myStories)}
+                />
               ) : (
                 <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
                   {userProfile?.photoURL ? (
