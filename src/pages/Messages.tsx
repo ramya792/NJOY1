@@ -478,7 +478,7 @@ const Messages: React.FC = () => {
               </motion.div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* New Message Dialog */}

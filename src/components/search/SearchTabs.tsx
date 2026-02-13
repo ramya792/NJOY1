@@ -45,7 +45,9 @@ const SearchTabs: React.FC = () => {
     try {
       const cached = sessionStorage.getItem('njoy_explore_cache');
       if (cached) {
-        return JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        // Filter out items with empty mediaUrl from cache
+        return parsed.filter((item: any) => item.mediaUrl);
       }
     } catch (e) {
       console.error('Explore cache restore error:', e);
@@ -176,9 +178,11 @@ const SearchTabs: React.FC = () => {
         // Process posts
         postsSnapshot.docs.forEach((doc) => {
           const data = doc.data();
+          const mediaUrl = data.mediaUrl || data.imageUrl || '';
+          if (!mediaUrl) return; // Skip posts without media
           feedItems.push({
             id: doc.id,
-            mediaUrl: data.mediaUrl || '',
+            mediaUrl,
             mediaType: data.mediaType || 'image',
             likes: data.likes || [],
             comments: data.comments || 0,
@@ -191,9 +195,11 @@ const SearchTabs: React.FC = () => {
         // Process reels
         reelsSnapshot.docs.forEach((doc) => {
           const data = doc.data();
+          const mediaUrl = data.videoUrl || data.mediaUrl || data.thumbnailUrl || '';
+          if (!mediaUrl) return; // Skip reels without media
           feedItems.push({
             id: doc.id,
-            mediaUrl: data.videoUrl || data.mediaUrl || '',
+            mediaUrl,
             mediaType: 'video',
             likes: data.likes || [],
             comments: data.comments || 0,
@@ -233,6 +239,13 @@ const SearchTabs: React.FC = () => {
     fetchExploreFeed();
   }, [userProfile, checkPrivateUsers]);
 
+  // Filter out private users' content and items without media from explore feed
+  const visibleExploreFeed = useMemo(() => {
+    return exploreFeed.filter(item =>
+      item.mediaUrl && (item.userId === userProfile?.uid || !privateUsers.has(item.userId))
+    );
+  }, [exploreFeed, privateUsers, userProfile?.uid]);
+
   // Save and restore scroll position
   React.useEffect(() => {
     const container = scrollContainerRef.current;
@@ -265,13 +278,6 @@ const SearchTabs: React.FC = () => {
       }
     };
   }, [visibleExploreFeed.length]);
-
-  // Filter out private users' content from explore feed
-  const visibleExploreFeed = useMemo(() => {
-    return exploreFeed.filter(item =>
-      item.userId === userProfile?.uid || !privateUsers.has(item.userId)
-    );
-  }, [exploreFeed, privateUsers, userProfile?.uid]);
 
   useEffect(() => {
     const searchTimeout = setTimeout(async () => {
@@ -741,6 +747,10 @@ const SearchTabs: React.FC = () => {
                         alt=""
                         className="w-full h-full object-cover"
                         loading="lazy"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = 'none';
+                        }}
                       />
                     )}
 
