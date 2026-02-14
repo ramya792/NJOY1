@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Send, Phone, Video, Info, Image, Smile, Paperclip, FileText, X, Loader2, PhoneOff,
-  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users, User, Palette, Pencil, Check
+  MoreVertical, Trash2, Bookmark, Mic, Square, Play, Pause, Users, User, Palette, Pencil, Check, Bot, Sparkles, CheckCircle2, AtSign
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { 
@@ -20,6 +20,7 @@ import {
   getDocs,
   deleteDoc,
   writeBatch,
+  limit,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
+import { aiService } from '@/lib/aiService';
 import {
   Dialog,
   DialogContent,
@@ -54,6 +56,11 @@ import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { CallService } from '@/lib/callService';
 import ChatWallpaperPicker, { getChatWallpaper, getWallpaperStyle, WallpaperConfig } from '@/components/chat/ChatWallpaper';
 
+interface MentionedUser {
+  uid: string;
+  username: string;
+}
+
 interface Message {
   id: string;
   senderId: string;
@@ -67,6 +74,7 @@ interface Message {
   saved?: boolean;
   editedAt?: Date;
   isEdited?: boolean;
+  mentions?: MentionedUser[];
 }
 
 interface Participant {
@@ -76,10 +84,22 @@ interface Participant {
   isOnline?: boolean;
   lastSeen?: Date;
   showActivity?: boolean;
+  isAI?: boolean;
+  aiType?: string;
+}
+
+interface GroupInfo {
+  groupName: string;
+  groupPhoto: string;
+  participants: string[];
+  participantNames: { [key: string]: string };
+  participantPhotos: { [key: string]: string };
+  admins: string[];
+  isGroup: true;
 }
 
 const ChatRoom: React.FC = () => {
-  const { conversationId } = useParams<{ conversationId: string }>();
+  const { conversationId, aiId } = useParams<{ conversationId?: string; aiId?: string }>();
   const [searchParams] = useSearchParams();
   const newUserId = searchParams.get('userId');
   
@@ -93,6 +113,9 @@ const ChatRoom: React.FC = () => {
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [participant, setParticipant] = useState<Participant | null>(null);
+  const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
+  const [isAIChat, setIsAIChat] = useState(false);
+  const [aiTyping, setAITyping] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -116,10 +139,164 @@ const ChatRoom: React.FC = () => {
   const [wallpaper, setWallpaper] = useState<WallpaperConfig>({ type: 'none', value: '' });
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [editText, setEditText] = useState('');
+  const [showMentionPicker, setShowMentionPicker] = useState(false);
+  const [mentionSearch, setMentionSearch] = useState('');
+  const [selectedMentions, setSelectedMentions] = useState<MentionedUser[]>([]);
+  const [mentionableUsers, setMentionableUsers] = useState<{uid: string; username: string; photoURL: string; isFollower?: boolean; isFollowing?: boolean}[]>([]);
+  const [mentionTab, setMentionTab] = useState<'followers' | 'following'>('followers');
+  const [alreadyMentionedUsers, setAlreadyMentionedUsers] = useState<Set<string>>(new Set());
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadRef = useRef(true);
+
+  // Fetch mentionable users (conversation participants or followers/following)
+  useEffect(() => {
+    if (!userProfile) return;
+
+    const fetchMentionableUsers = async () => {
+      try {
+        // For group chats, use group participants
+        if (groupInfo) {
+          const users = groupInfo.participants
+            .filter(uid => uid !== userProfile.uid)
+            .map(uid => ({
+              uid,
+              username: groupInfo.participantNames[uid] || 'User',
+              photoURL: groupInfo.participantPhotos[uid] || '',
+            }));
+          setMentionableUsers(users);
+          return;
+        }
+
+        // For 1-on-1 chats, show followers and following separately
+        const userIds = new Set<string>();
+        const followerIds = new Set<string>(userProfile.followers || []);
+        const followingIds = new Set<string>(userProfile.following || []);
+
+        // Add the other participant
+        if (participant && !participant.isAI) {
+          userIds.add(participant.uid);
+        }
+
+        // Add followers and following
+        followerIds.forEach(id => userIds.add(id));
+        followingIds.forEach(id => userIds.add(id));
+
+        // Remove self
+        userIds.delete(userProfile.uid);
+
+        const users: {uid: string; username: string; photoURL: string; isFollower?: boolean; isFollowing?: boolean}[] = [];
+        const idsArray = Array.from(userIds).slice(0, 100); // limit to 100
+
+        for (const uid of idsArray) {
+          const userDoc = await getDoc(doc(db, 'users', uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            users.push({
+              uid,
+              username: data.username || 'User',
+              photoURL: data.photoURL || '',
+              isFollower: followerIds.has(uid),
+              isFollowing: followingIds.has(uid),
+            });
+          }
+        }
+        setMentionableUsers(users);
+      } catch (error) {
+        console.error('Error fetching mentionable users:', error);
+      }
+    };
+
+    fetchMentionableUsers();
+  }, [userProfile, participant, groupInfo]);
+
+  // Handle input change with @ mention detection
+  const handleInputChange = (value: string) => {
+    if (editingMessage) {
+      setEditText(value);
+    } else {
+      setNewMessage(value);
+    }
+
+    // Detect @ symbol
+    const cursorText = value;
+    const lastAtIndex = cursorText.lastIndexOf('@');
+    if (lastAtIndex !== -1) {
+      const textAfterAt = cursorText.slice(lastAtIndex + 1);
+      // Only show picker if @ is at start or after space, and no space in search term
+      const charBeforeAt = lastAtIndex > 0 ? cursorText[lastAtIndex - 1] : ' ';
+      if ((charBeforeAt === ' ' || lastAtIndex === 0) && !textAfterAt.includes(' ')) {
+        setMentionSearch(textAfterAt.toLowerCase());
+        setShowMentionPicker(true);
+        return;
+      }
+    }
+    setShowMentionPicker(false);
+    setMentionSearch('');
+    setSelectedMentions([]); // Clear selections when picker auto-closes
+  };
+
+  // Toggle mention selection
+  const toggleMentionUser = (user: {uid: string; username: string}) => {
+    // Prevent selecting users who have already been mentioned in the conversation
+    if (alreadyMentionedUsers.has(user.uid)) {
+      toast({
+        title: 'Already mentioned',
+        description: `@${user.username} has already been mentioned in this conversation`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setSelectedMentions(prev => {
+      const exists = prev.find(m => m.uid === user.uid);
+      if (exists) {
+        return prev.filter(m => m.uid !== user.uid);
+      }
+      return [...prev, { uid: user.uid, username: user.username }];
+    });
+  };
+
+  // Confirm mentions and insert into message
+  const confirmMentions = () => {
+    if (selectedMentions.length === 0) {
+      setShowMentionPicker(false);
+      setSelectedMentions([]); // Clear even if empty
+      return;
+    }
+
+    const currentText = editingMessage ? editText : newMessage;
+    // Remove the partial @search from the message
+    const lastAtIndex = currentText.lastIndexOf('@');
+    const textBeforeAt = lastAtIndex >= 0 ? currentText.slice(0, lastAtIndex) : currentText;
+    
+    // Build mention tags
+    const mentionTags = selectedMentions.map(m => `@${m.username}`).join(' ');
+    const finalText = `${textBeforeAt}${mentionTags} `;
+
+    if (editingMessage) {
+      setEditText(finalText);
+    } else {
+      setNewMessage(finalText);
+    }
+    setShowMentionPicker(false);
+    setMentionSearch('');
+    setSelectedMentions([]); // Clear selections for next mention
+  };
+
+  // Remove a mention tag from the message
+  const removeMention = (username: string) => {
+    const currentText = editingMessage ? editText : newMessage;
+    const updated = currentText.replace(new RegExp(`@${username}\\s?`, 'g'), '');
+    if (editingMessage) {
+      setEditText(updated);
+    } else {
+      setNewMessage(updated);
+    }
+    setSelectedMentions(prev => prev.filter(m => m.username !== username));
+  };
 
   // Load wallpaper on mount
   useEffect(() => {
@@ -197,7 +374,48 @@ const ChatRoom: React.FC = () => {
   useEffect(() => {
     if (!userProfile) return;
 
+    // Reset mentions tracking when conversation changes
+    setAlreadyMentionedUsers(new Set());
+
     const initializeChat = async () => {
+      try {
+        // Handle AI Chat
+        if (aiId) {
+        setIsAIChat(true);
+        const assistants = aiService.getAIAssistants();
+        const aiAssistant = assistants.find(a => a.id === aiId);
+        
+        if (aiAssistant) {
+          setParticipant({
+            uid: `ai-${aiId}`,
+            username: aiAssistant.name,
+            photoURL: '', // Will use gradient icon instead
+            isOnline: true,
+            isAI: true,
+            aiType: aiId,
+          });
+          
+          // Load AI conversation from localStorage
+          const savedMessages = localStorage.getItem(`ai-chat-${aiId}-${userProfile.uid}`);
+          if (savedMessages) {
+            try {
+              const parsed = JSON.parse(savedMessages);
+              setMessages(parsed.map((m: any) => ({
+                ...m,
+                createdAt: new Date(m.createdAt),
+              })));
+              // Scroll to bottom after loading AI messages
+              setTimeout(() => scrollToBottom('auto'), 100);
+            } catch (error) {
+              console.error('Error loading AI messages:', error);
+            }
+          }
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Handle regular/group chat
       if (newUserId && conversationId === 'new') {
         const userDoc = await getDoc(doc(db, 'users', newUserId));
         if (userDoc.exists()) {
@@ -215,12 +433,15 @@ const ChatRoom: React.FC = () => {
           const unsubscribe = onSnapshot(doc(db, 'users', newUserId), (docSnap) => {
             if (docSnap.exists()) {
               const data = docSnap.data();
-              setParticipant(prev => prev ? {
-                ...prev,
+              // Always set participant data, don't rely on prev being present
+              setParticipant({
+                uid: newUserId,
+                username: data.username || userData.username,
+                photoURL: data.photoURL || userData.photoURL || '',
                 isOnline: data.isOnline || false,
                 lastSeen: data.lastSeen?.toDate(),
                 showActivity: data.showActivity !== false,
-              } : null);
+              });
             }
           });
         }
@@ -247,33 +468,51 @@ const ChatRoom: React.FC = () => {
         const convDoc = await getDoc(doc(db, 'conversations', conversationId));
         if (convDoc.exists()) {
           const data = convDoc.data();
-          const otherId = data.participants.find((p: string) => p !== userProfile.uid);
           
-          // Get participant info with online status
-          const participantDoc = await getDoc(doc(db, 'users', otherId));
-          if (participantDoc.exists()) {
-            const participantData = participantDoc.data();
-            setParticipant({
-              uid: otherId,
-              username: participantData.username || 'User',
-              photoURL: participantData.photoURL || '',
-              isOnline: participantData.isOnline || false,
-              lastSeen: participantData.lastSeen?.toDate(),
-              showActivity: participantData.showActivity !== false,
+          // Check if it's a group chat
+          if (data.isGroup) {
+            setGroupInfo({
+              groupName: data.groupName || 'Group Chat',
+              groupPhoto: data.groupPhoto || '',
+              participants: data.participants || [],
+              participantNames: data.participantNames || {},
+              participantPhotos: data.participantPhotos || {},
+              admins: data.admins || [],
+              isGroup: true,
             });
+          } else {
+            // Regular 1-on-1 chat
+            const otherId = data.participants.find((p: string) => p !== userProfile.uid);
             
-            // Listen to participant's online status
-            onSnapshot(doc(db, 'users', otherId), (docSnap) => {
-              if (docSnap.exists()) {
-                const data = docSnap.data();
-                setParticipant(prev => prev ? {
-                  ...prev,
-                  isOnline: data.isOnline || false,
-                  lastSeen: data.lastSeen?.toDate(),
-                  showActivity: data.showActivity !== false,
-                } : null);
-              }
-            });
+            // Get participant info with online status
+            const participantDoc = await getDoc(doc(db, 'users', otherId));
+            if (participantDoc.exists()) {
+              const participantData = participantDoc.data();
+              setParticipant({
+                uid: otherId,
+                username: participantData.username || 'User',
+                photoURL: participantData.photoURL || '',
+                isOnline: participantData.isOnline || false,
+                lastSeen: participantData.lastSeen?.toDate(),
+                showActivity: participantData.showActivity !== false,
+              });
+              
+              // Listen to participant's online status
+              onSnapshot(doc(db, 'users', otherId), (docSnap) => {
+                if (docSnap.exists()) {
+                  const data = docSnap.data();
+                  // Always set participant data, don't rely on prev being present
+                  setParticipant({
+                    uid: otherId,
+                    username: data.username || participantData.username || 'User',
+                    photoURL: data.photoURL || participantData.photoURL || '',
+                    isOnline: data.isOnline || false,
+                    lastSeen: data.lastSeen?.toDate(),
+                    showActivity: data.showActivity !== false,
+                  });
+                }
+              });
+            }
           }
 
           if (data.unreadBy?.includes(userProfile.uid)) {
@@ -285,14 +524,26 @@ const ChatRoom: React.FC = () => {
         setCurrentConversationId(conversationId);
         setLoading(false);
       }
-    };
+    } catch (error) {
+      console.error('Error initializing chat:', error);
+      setLoading(false);
+      toast({
+        title: "Error",
+        description: "Failed to load chat. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
-    initializeChat();
-  }, [conversationId, newUserId, userProfile]);
+  initializeChat();
+}, [conversationId, aiId, newUserId, userProfile, toast]);
 
   // Listen to messages
   useEffect(() => {
     if (!currentConversationId || currentConversationId === 'new' || !userProfile) return;
+
+    // Reset initial load flag when conversation changes
+    isInitialLoadRef.current = true;
 
     const messagesQuery = query(
       collection(db, 'conversations', currentConversationId, 'messages'),
@@ -310,14 +561,52 @@ const ChatRoom: React.FC = () => {
         .filter((msg: Message) => !msg.deletedFor?.includes(userProfile.uid)) as Message[];
       
       setMessages(fetchedMessages);
-      // Only auto-scroll if user is near bottom and not actively scrolling
-      if (isNearBottomRef.current && !isUserScrollingRef.current) {
+      
+      // Extract all already mentioned user IDs from all messages
+      const mentionedUserIds = new Set<string>();
+      fetchedMessages.forEach((msg) => {
+        if (msg.mentions && Array.isArray(msg.mentions)) {
+          msg.mentions.forEach((mention) => {
+            if (mention.uid) {
+              mentionedUserIds.add(mention.uid);
+            }
+          });
+        }
+      });
+      setAlreadyMentionedUsers(mentionedUserIds);
+      
+      // Only auto-scroll if user is near bottom and not actively scrolling (not initial load)
+      if (!isInitialLoadRef.current && isNearBottomRef.current && !isUserScrollingRef.current) {
         scrollToBottom('smooth');
       }
     });
 
     return () => unsubscribe();
-  }, [currentConversationId, userProfile]);
+  }, [currentConversationId, userProfile, scrollToBottom]);
+
+  // Ensure scroll to bottom after messages render on initial load
+  useEffect(() => {
+    if (messages.length > 0 && isInitialLoadRef.current && messagesContainerRef.current) {
+      // Wait for images and media to load before scrolling
+      // Use multiple delays to ensure content is fully rendered
+      const scrollTimer = setTimeout(() => {
+        if (messagesContainerRef.current) {
+          // Force scroll to bottom
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+          
+          // Double-check after a brief moment in case images are still loading
+          setTimeout(() => {
+            if (messagesContainerRef.current && isInitialLoadRef.current) {
+              messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+              isInitialLoadRef.current = false;
+            }
+          }, 100);
+        }
+      }, 50);
+
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [messages.length]);
 
   const uploadToCloudinary = async (file: File | Blob, resourceType: string = 'auto'): Promise<{ url: string; type: string }> => {
     const formData = new FormData();
@@ -458,11 +747,90 @@ const ChatRoom: React.FC = () => {
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim() || !userProfile || !participant) return;
+    if (!newMessage.trim() || !userProfile) return;
+    
+    // AI Chat handling
+    if (isAIChat && participant?.isAI) {
+      const messageText = newMessage.trim();
+      setNewMessage('');
+      setShowEmojiPicker(false);
+
+      // Add user message
+      const userMessageId = `user_${Date.now()}`;
+      const userMessage: Message = {
+        id: userMessageId,
+        senderId: userProfile.uid,
+        text: messageText,
+        createdAt: new Date(),
+        seen: true,
+      };
+      
+      const updatedMessages = [...messages, userMessage];
+      setMessages(updatedMessages);
+      scrollToBottom();
+
+      // Save to localStorage
+      localStorage.setItem(
+        `ai-chat-${participant.aiType}-${userProfile.uid}`,
+        JSON.stringify(updatedMessages)
+      );
+
+      // Show AI typing indicator
+      setAITyping(true);
+
+      try {
+        // Get AI response
+        const conversationHistory = messages
+          .filter(m => !m.mediaUrl)
+          .map(m => ({
+            role: m.senderId === userProfile.uid ? 'user' as const : 'model' as const,
+            parts: [{ text: m.text }],
+          }));
+
+        const aiResponse = await aiService.sendMessage(messageText, conversationHistory);
+
+        // Add AI response
+        const aiMessageId = `ai_${Date.now()}`;
+        const aiMessage: Message = {
+          id: aiMessageId,
+          senderId: participant.uid,
+          text: aiResponse,
+          createdAt: new Date(),
+          seen: true,
+        };
+
+        const newMessages = [...updatedMessages, aiMessage];
+        setMessages(newMessages);
+        scrollToBottom('smooth');
+
+        // Save updated conversation
+        localStorage.setItem(
+          `ai-chat-${participant.aiType}-${userProfile.uid}`,
+          JSON.stringify(newMessages)
+        );
+      } catch (error) {
+        console.error('AI response error:', error);
+        toast({
+          title: 'AI unavailable',
+          description: 'Could not get AI response. Please try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setAITyping(false);
+      }
+      
+      return;
+    }
+
+    // Regular chat handling
+    if (!participant || participant.isAI) return;
 
     const messageText = newMessage.trim();
+    const messageMentions = selectedMentions.length > 0 ? [...selectedMentions] : undefined;
     setNewMessage('');
     setShowEmojiPicker(false);
+    setSelectedMentions([]);
+    setShowMentionPicker(false);
 
     // Optimistic update - add message immediately to UI
     const optimisticId = `temp_${Date.now()}`;
@@ -472,6 +840,7 @@ const ChatRoom: React.FC = () => {
       text: messageText,
       createdAt: new Date(),
       seen: false,
+      mentions: messageMentions,
     };
     setMessages(prev => [...prev, optimisticMessage]);
     requestAnimationFrame(() => scrollToBottom());
@@ -504,13 +873,73 @@ const ChatRoom: React.FC = () => {
         text: messageText,
         createdAt: serverTimestamp(),
         seen: false,
+        ...(messageMentions ? { mentions: messageMentions } : {}),
       });
 
-      await updateDoc(doc(db, 'conversations', convId), {
-        lastMessage: messageText,
-        lastMessageTime: serverTimestamp(),
-        unreadBy: [participant.uid],
-      });
+      // For group chats, mark all other participants as unread
+      if (groupInfo) {
+        const unreadUsers = groupInfo.participants.filter(p => p !== userProfile.uid);
+        await updateDoc(doc(db, 'conversations', convId), {
+          lastMessage: messageText,
+          lastMessageTime: serverTimestamp(),
+          unreadBy: unreadUsers,
+        });
+      } else {
+        await updateDoc(doc(db, 'conversations', convId), {
+          lastMessage: messageText,
+          lastMessageTime: serverTimestamp(),
+          unreadBy: [participant.uid],
+        });
+      }
+
+      // Send notifications to mentioned users
+      if (messageMentions && messageMentions.length > 0) {
+        const notificationPromises = messageMentions.map(async (mention) => {
+          // Don't send notification to self
+          if (mention.uid === userProfile.uid) return;
+          
+          try {
+            // Check for existing recent notification from this user in this conversation
+            const recentNotificationQuery = query(
+              collection(db, 'notifications'),
+              where('type', '==', 'mention'),
+              where('fromUserId', '==', userProfile.uid),
+              where('toUserId', '==', mention.uid),
+              where('conversationId', '==', convId),
+              limit(1)
+            );
+            
+            const existingNotifs = await getDocs(recentNotificationQuery);
+            
+            if (!existingNotifs.empty) {
+              // Update existing notification instead of creating duplicate
+              const existingNotifId = existingNotifs.docs[0].id;
+              await updateDoc(doc(db, 'notifications', existingNotifId), {
+                message: `@${userProfile.username} mentioned you in a message`,
+                read: false,
+                createdAt: serverTimestamp(),
+              });
+            } else {
+              // Create new notification
+              await addDoc(collection(db, 'notifications'), {
+                type: 'mention',
+                fromUserId: userProfile.uid,
+                fromUsername: userProfile.username,
+                fromUserPhoto: userProfile.photoURL || '',
+                toUserId: mention.uid,
+                conversationId: convId,
+                message: `@${userProfile.username} mentioned you in a message`,
+                read: false,
+                createdAt: serverTimestamp(),
+              });
+            }
+          } catch (error) {
+            console.error('Error sending mention notification:', error);
+          }
+        });
+        
+        await Promise.all(notificationPromises);
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -847,13 +1276,54 @@ const ChatRoom: React.FC = () => {
                 </a>
               );
             }
-            return <span key={i}>{part}</span>;
+            return renderMentionsInText(part, i);
           })}
         </span>
       );
     }
     
-    return text;
+    return renderMentionsInText(text, 0);
+  };
+
+  // Render @mentions as highlighted clickable tags
+  const renderMentionsInText = (text: string, keyPrefix: number) => {
+    const mentionRegex = /@(\w+)/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      // Add text before mention
+      if (match.index > lastIndex) {
+        parts.push(<span key={`${keyPrefix}-t-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>);
+      }
+      // Add highlighted mention
+      const mentionUsername = match[1];
+      parts.push(
+        <button
+          key={`${keyPrefix}-m-${match.index}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Find the user and navigate to their profile
+            const mentionedUser = mentionableUsers.find(u => u.username === mentionUsername);
+            if (mentionedUser) {
+              navigate(`/profile/${mentionedUser.uid}`);
+            }
+          }}
+          className="inline-flex items-center bg-primary/20 text-primary font-semibold rounded px-1 py-0.5 text-sm hover:bg-primary/30 transition-colors"
+        >
+          @{mentionUsername}
+        </button>
+      );
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(<span key={`${keyPrefix}-t-${lastIndex}`}>{text.slice(lastIndex)}</span>);
+    }
+
+    return parts.length > 0 ? <span>{parts}</span> : <span>{text}</span>;
   };
 
   const renderMessage = (message: Message) => {
@@ -979,16 +1449,47 @@ const ChatRoom: React.FC = () => {
       <header className="flex-shrink-0 glass border-b border-border z-10">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <button onClick={() => navigate('/messages')} className="p-2 -ml-2 flex-shrink-0">
+            <button onClick={() => navigate(isAIChat ? '/ai-chats' : '/messages')} className="p-2 -ml-2 flex-shrink-0">
               <ArrowLeft className="w-6 h-6" />
             </button>
             
             <button
-              onClick={() => participant && navigate(`/user/${participant.uid}`)}
+              onClick={() => {
+                if (isAIChat) return; // No profile for AI
+                if (groupInfo) {
+                  setShowUserInfoDialog(true); // Show group info
+                } else if (participant) {
+                  navigate(`/user/${participant.uid}`);
+                }
+              }}
               className="flex items-center gap-3 flex-1 min-w-0"
+              disabled={isAIChat}
             >
-              <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary flex-shrink-0">
-                {participant?.photoURL ? (
+              {/* Profile/Group/AI Icon */}
+              <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 ${
+                isAIChat 
+                  ? 'bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-400' 
+                  : groupInfo 
+                    ? 'bg-gradient-to-br from-primary/20 to-primary/10'
+                    : 'bg-secondary'
+              }`}>
+                {isAIChat ? (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Bot className="w-6 h-6 text-white" strokeWidth={2.5} />
+                  </div>
+                ) : groupInfo ? (
+                  groupInfo.groupPhoto ? (
+                    <img
+                      src={groupInfo.groupPhoto}
+                      alt={groupInfo.groupName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Users className="w-6 h-6 text-primary" />
+                    </div>
+                  )
+                ) : participant?.photoURL ? (
                   <img
                     src={participant.photoURL}
                     alt={participant.username}
@@ -1000,9 +1501,24 @@ const ChatRoom: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{participant?.username}</p>
-                {participant?.showActivity !== false && (
+              
+              {/* Name and Status */}
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <div className="flex items-center gap-1 max-w-full">
+                  <p className="font-semibold text-sm truncate flex-1">
+                    {isAIChat ? participant?.username : groupInfo?.groupName || participant?.username}
+                  </p>
+                  {isAIChat && participant?.aiType === 'meta-ai' && (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-500 flex-shrink-0" />
+                  )}
+                </div>
+                {isAIChat ? (
+                  <p className="text-xs text-muted-foreground truncate">AI Assistant</p>
+                ) : groupInfo ? (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {groupInfo.participants.length} members
+                  </p>
+                ) : participant?.showActivity !== false ? (
                   <p className="text-xs text-muted-foreground truncate">
                     {participant?.isOnline 
                       ? 'Active now' 
@@ -1011,24 +1527,29 @@ const ChatRoom: React.FC = () => {
                         : 'Offline'
                     }
                   </p>
-                )}
+                ) : null}
               </div>
             </button>
           </div>
           
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button 
-              onClick={() => handleStartCall('audio')}
-              className="p-2 hover:bg-secondary rounded-full transition-colors"
-            >
-              <Phone className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={() => handleStartCall('video')}
-              className="p-2 hover:bg-secondary rounded-full transition-colors"
-            >
-              <Video className="w-5 h-5" />
-            </button>
+            {/* Hide call buttons for AI chats and group chats */}
+            {!isAIChat && !groupInfo && (
+              <>
+                <button 
+                  onClick={() => handleStartCall('audio')}
+                  className="p-2 hover:bg-secondary rounded-full transition-colors"
+                >
+                  <Phone className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => handleStartCall('video')}
+                  className="p-2 hover:bg-secondary rounded-full transition-colors"
+                >
+                  <Video className="w-5 h-5" />
+                </button>
+              </>
+            )}
             
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1037,35 +1558,62 @@ const ChatRoom: React.FC = () => {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={async () => {
-                  if (!participant) return;
-                  try {
-                    const userDoc = await getDoc(doc(db, 'users', participant.uid));
-                    if (userDoc.exists()) {
-                      const data = userDoc.data();
-                      setParticipantFollowers(data.followers || []);
-                      setParticipantFollowing(data.following || []);
+                {!isAIChat && !groupInfo && (
+                  <DropdownMenuItem onClick={async () => {
+                    if (!participant) return;
+                    try {
+                      const userDoc = await getDoc(doc(db, 'users', participant.uid));
+                      if (userDoc.exists()) {
+                        const data = userDoc.data();
+                        setParticipantFollowers(data.followers || []);
+                        setParticipantFollowing(data.following || []);
+                      }
+                      setShowUserInfoDialog(true);
+                    } catch (error) {
+                      console.error('Error fetching user info:', error);
                     }
-                    setShowUserInfoDialog(true);
-                  } catch (error) {
-                    console.error('Error fetching user info:', error);
-                  }
-                }}>
-                  <User className="w-4 h-4 mr-2" />
-                  View info
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowWallpaperPicker(true)}>
-                  <Palette className="w-4 h-4 mr-2" />
-                  Wallpaper
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowClearChatDialog(true)}>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Clear chat
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/profile?tab=saved')}>
-                  <Bookmark className="w-4 h-4 mr-2" />
-                  Saved messages
-                </DropdownMenuItem>
+                  }}>
+                    <User className="w-4 h-4 mr-2" />
+                    View info
+                  </DropdownMenuItem>
+                )}
+                {groupInfo && (
+                  <DropdownMenuItem onClick={() => setShowUserInfoDialog(true)}>
+                    <Users className="w-4 h-4 mr-2" />
+                    Group info
+                  </DropdownMenuItem>
+                )}
+                {isAIChat && (
+                  <DropdownMenuItem onClick={() => {
+                    if (participant?.aiType) {
+                      localStorage.removeItem(`ai-chat-${participant.aiType}-${userProfile?.uid}`);
+                      setMessages([]);
+                      toast({
+                        title: 'Chat cleared',
+                        description: 'All messages have been deleted.',
+                      });
+                    }
+                  }}>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Clear chat
+                  </DropdownMenuItem>
+                )}
+                {!isAIChat && (
+                  <>
+                    <DropdownMenuItem onClick={() => setShowWallpaperPicker(true)}>
+                      <Palette className="w-4 h-4 mr-2" />
+                      Wallpaper
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowClearChatDialog(true)}>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Clear chat
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/profile?tab=saved')}>
+                      <Bookmark className="w-4 h-4 mr-2" />
+                      Saved messages
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1151,6 +1699,29 @@ const ChatRoom: React.FC = () => {
             );
           })
         )}
+        
+        {/* AI Typing Indicator */}
+        {aiTyping && isAIChat && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex justify-start mb-4"
+          >
+            <div className="flex items-end gap-2 max-w-[75%]">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-400 flex items-center justify-center flex-shrink-0">
+                <Bot className="w-5 h-5 text-white" strokeWidth={2.5} />
+              </div>
+              <div className="px-4 py-3 message-received">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+        
         <div ref={messagesEndRef} />
       </div>
 
@@ -1188,62 +1759,206 @@ const ChatRoom: React.FC = () => {
           </div>
         ) : (
           <div className="flex items-center gap-2 max-w-lg mx-auto">
-            <div className="relative">
-              <button 
-                onClick={() => setShowAttachMenu(!showAttachMenu)}
-                className="p-2 hover:bg-secondary rounded-full transition-colors"
-              >
-                <Paperclip className="w-6 h-6 text-muted-foreground" />
-              </button>
-              
+            {/* Hide attachment button for AI chats */}
+            {!isAIChat && (
+              <div className="relative">
+                <button 
+                  onClick={() => setShowAttachMenu(!showAttachMenu)}
+                  className="p-2 hover:bg-secondary rounded-full transition-colors"
+                >
+                  <Paperclip className="w-6 h-6 text-muted-foreground" />
+                </button>
+                
+                <AnimatePresence>
+                  {showAttachMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute bottom-12 left-0 bg-card border border-border rounded-lg shadow-lg p-2 min-w-[160px]"
+                    >
+                      <label className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-lg cursor-pointer transition-colors">
+                        <Image className="w-5 h-5 text-green-500" />
+                        <span className="text-sm">Photo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleFileSelect(e, 'image')}
+                        />
+                      </label>
+                      <label className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-lg cursor-pointer transition-colors">
+                        <Video className="w-5 h-5 text-blue-500" />
+                        <span className="text-sm">Video</span>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          className="hidden"
+                          onChange={(e) => handleFileSelect(e, 'video')}
+                        />
+                      </label>
+                      <label className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-lg cursor-pointer transition-colors">
+                        <FileText className="w-5 h-5 text-red-500" />
+                        <span className="text-sm">PDF Document</span>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          ref={fileInputRef}
+                          onChange={(e) => handleFileSelect(e, 'pdf')}
+                        />
+                      </label>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+            
+            <div className="flex-1 relative">
+              {/* Mention tags above input */}
+              {selectedMentions.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-1 px-1">
+                  {selectedMentions.map(m => (
+                    <span key={m.uid} className="inline-flex items-center gap-1 bg-primary/15 text-primary text-xs font-medium rounded-full px-2 py-0.5">
+                      @{m.username}
+                      <button onClick={() => removeMention(m.username)} className="hover:text-destructive">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Mention Picker Popup */}
               <AnimatePresence>
-                {showAttachMenu && (
+                {showMentionPicker && !isAIChat && (
                   <motion.div
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-12 left-0 bg-card border border-border rounded-lg shadow-lg p-2 min-w-[160px]"
+                    className="absolute bottom-14 left-0 right-0 bg-card border border-border rounded-xl shadow-xl z-50 max-h-80 flex flex-col"
                   >
-                    <label className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-lg cursor-pointer transition-colors">
-                      <Image className="w-5 h-5 text-green-500" />
-                      <span className="text-sm">Photo</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => handleFileSelect(e, 'image')}
-                      />
-                    </label>
-                    <label className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-lg cursor-pointer transition-colors">
-                      <Video className="w-5 h-5 text-blue-500" />
-                      <span className="text-sm">Video</span>
-                      <input
-                        type="file"
-                        accept="video/*"
-                        className="hidden"
-                        onChange={(e) => handleFileSelect(e, 'video')}
-                      />
-                    </label>
-                    <label className="flex items-center gap-3 px-3 py-2 hover:bg-secondary rounded-lg cursor-pointer transition-colors">
-                      <FileText className="w-5 h-5 text-red-500" />
-                      <span className="text-sm">PDF Document</span>
-                      <input
-                        type="file"
-                        accept="application/pdf"
-                        className="hidden"
-                        ref={fileInputRef}
-                        onChange={(e) => handleFileSelect(e, 'pdf')}
-                      />
-                    </label>
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                      <div className="flex items-center gap-2">
+                        <AtSign className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-semibold">Mention Users</span>
+                      </div>
+                      <button onClick={() => { setShowMentionPicker(false); setMentionSearch(''); setSelectedMentions([]); }} className="p-1 hover:bg-secondary rounded-full">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    
+                    {/* Tabs for Followers/Following (only show for non-group chats) */}
+                    {!groupInfo && (
+                      <div className="flex border-b border-border">
+                        <button
+                          onClick={() => setMentionTab('followers')}
+                          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
+                            mentionTab === 'followers' 
+                              ? 'text-primary border-b-2 border-primary' 
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Followers ({mentionableUsers.filter(u => u.isFollower).length})
+                        </button>
+                        <button
+                          onClick={() => setMentionTab('following')}
+                          className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
+                            mentionTab === 'following' 
+                              ? 'text-primary border-b-2 border-primary' 
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Following ({mentionableUsers.filter(u => u.isFollowing).length})
+                        </button>
+                      </div>
+                    )}
+                    
+                    <div className="flex-1 overflow-y-auto">
+                      {mentionableUsers
+                        .filter(u => {
+                          // Filter by tab (only for non-group chats)
+                          if (!groupInfo) {
+                            if (mentionTab === 'followers' && !u.isFollower) return false;
+                            if (mentionTab === 'following' && !u.isFollowing) return false;
+                          }
+                          // Filter by search
+                          if (mentionSearch && !u.username.toLowerCase().includes(mentionSearch.toLowerCase())) return false;
+                          return true;
+                        })
+                        .map(user => {
+                          const isSelected = selectedMentions.some(m => m.uid === user.uid);
+                          const alreadyMentioned = alreadyMentionedUsers.has(user.uid);
+                          return (
+                            <button
+                              key={user.uid}
+                              onClick={() => toggleMentionUser(user)}
+                              disabled={alreadyMentioned}
+                              className={`flex items-center gap-3 w-full px-3 py-2.5 transition-colors ${
+                                alreadyMentioned 
+                                  ? 'opacity-50 cursor-not-allowed bg-secondary/30' 
+                                  : 'hover:bg-secondary/60'
+                              }`}
+                            >
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                alreadyMentioned 
+                                  ? 'bg-muted border-muted' 
+                                  : isSelected 
+                                    ? 'bg-primary border-primary' 
+                                    : 'border-muted-foreground/40'
+                              }`}>
+                                {alreadyMentioned ? (
+                                  <X className="w-3 h-3 text-muted-foreground" />
+                                ) : isSelected ? (
+                                  <Check className="w-3 h-3 text-primary-foreground" />
+                                ) : null}
+                              </div>
+                              <div className="w-8 h-8 rounded-full overflow-hidden bg-secondary flex-shrink-0">
+                                {user.photoURL ? (
+                                  <img src={user.photoURL} alt={user.username} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                                    {user.username.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1 text-left">
+                                <span className="text-sm font-medium truncate">{user.username}</span>
+                                {alreadyMentioned && (
+                                  <span className="text-xs text-muted-foreground block">Already mentioned</span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      {mentionableUsers.filter(u => {
+                        if (!groupInfo) {
+                          if (mentionTab === 'followers' && !u.isFollower) return false;
+                          if (mentionTab === 'following' && !u.isFollowing) return false;
+                        }
+                        if (mentionSearch && !u.username.toLowerCase().includes(mentionSearch.toLowerCase())) return false;
+                        return true;
+                      }).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">No users found</p>
+                      )}
+                    </div>
+                    <div className="border-t border-border px-3 py-2">
+                      <Button
+                        size="sm"
+                        onClick={confirmMentions}
+                        disabled={selectedMentions.length === 0}
+                        className="w-full h-8 text-sm font-semibold btn-gradient"
+                      >
+                        Done ({selectedMentions.length} selected)
+                      </Button>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
-            
-            <div className="flex-1 relative">
+
               <Input
                 value={editingMessage ? editText : newMessage}
-                onChange={(e) => editingMessage ? setEditText(e.target.value) : setNewMessage(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     if (editingMessage) {
@@ -1256,7 +1971,13 @@ const ChatRoom: React.FC = () => {
                     handleCancelEdit();
                   }
                 }}
-                placeholder={editingMessage ? "Edit message..." : "Message..."}
+                placeholder={
+                  editingMessage 
+                    ? "Edit message..." 
+                    : isAIChat 
+                      ? "Ask me anything..." 
+                      : "Message..."
+                }
                 className="pr-10 rounded-full emoji-text"
                 disabled={uploading}
               />
@@ -1307,12 +2028,12 @@ const ChatRoom: React.FC = () => {
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={handleSend}
-                disabled={sending}
-                className="p-2 rounded-full text-primary"
+                disabled={sending || aiTyping}
+                className="p-2 rounded-full text-primary disabled:opacity-50"
               >
                 <Send className="w-6 h-6" />
               </motion.button>
-            ) : (
+            ) : !isAIChat ? (
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={startRecording}
@@ -1320,6 +2041,10 @@ const ChatRoom: React.FC = () => {
               >
                 <Mic className="w-6 h-6" />
               </motion.button>
+            ) : (
+              <div className="p-2">
+                <Sparkles className="w-6 h-6 text-muted-foreground" />
+              </div>
             )}
           </div>
         )}
@@ -1417,48 +2142,121 @@ const ChatRoom: React.FC = () => {
 
       {/* User Info Dialog - shown on double tap of username */}
       <Dialog open={showUserInfoDialog} onOpenChange={setShowUserInfoDialog}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="text-center">{participant?.username}</DialogTitle>
+            <DialogTitle className="text-center">
+              {groupInfo ? groupInfo.groupName : participant?.username}
+            </DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col items-center py-4">
-            <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
-              {participant?.photoURL ? (
-                <img
-                  src={participant.photoURL}
-                  alt={participant.username}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-2xl font-semibold text-muted-foreground">
-                  {participant?.username?.charAt(0).toUpperCase()}
+          
+          {groupInfo ? (
+            /* Group Info - Show Members */
+            <div className="flex flex-col py-4">
+              <div className="flex flex-col items-center mb-4">
+                <div className="w-20 h-20 rounded-full overflow-hidden bg-gradient-to-br from-primary/20 to-primary/10 mb-3">
+                  {groupInfo.groupPhoto ? (
+                    <img
+                      src={groupInfo.groupPhoto}
+                      alt={groupInfo.groupName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Users className="w-10 h-10 text-primary" />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="flex items-center gap-8 mt-2">
-              <div className="text-center">
-                <p className="font-bold text-lg">{participantFollowers.length}</p>
-                <p className="text-sm text-muted-foreground">Followers</p>
+                <p className="text-sm text-muted-foreground">
+                  {groupInfo.participants.length} members
+                </p>
               </div>
-              <div className="text-center">
-                <p className="font-bold text-lg">{participantFollowing.length}</p>
-                <p className="text-sm text-muted-foreground">Following</p>
+              
+              <div className="border-t border-border pt-3">
+                <h3 className="text-sm font-semibold mb-2 px-1">Group Members</h3>
+                <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
+                  {groupInfo.participants.map((uid) => {
+                    const username = groupInfo.participantNames[uid] || 'User';
+                    const photoURL = groupInfo.participantPhotos[uid] || '';
+                    const isCurrentUser = uid === userProfile?.uid;
+                    
+                    return (
+                      <button
+                        key={uid}
+                        onClick={() => {
+                          if (!isCurrentUser) {
+                            setShowUserInfoDialog(false);
+                            navigate(`/user/${uid}`);
+                          }
+                        }}
+                        className="flex items-center gap-3 px-2 py-2 hover:bg-secondary rounded-lg transition-colors"
+                        disabled={isCurrentUser}
+                      >
+                        <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary flex-shrink-0">
+                          {photoURL ? (
+                            <img
+                              src={photoURL}
+                              alt={username}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-sm font-semibold text-muted-foreground">
+                              {username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium">
+                            {username}
+                            {isCurrentUser && <span className="text-muted-foreground ml-1">(You)</span>}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-            <div className="flex gap-3 mt-6 w-full">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setShowUserInfoDialog(false);
-                  navigate(`/user/${participant?.uid}`);
-                }}
-              >
-                <Users className="w-4 h-4 mr-2" />
-                View Profile
-              </Button>
+          ) : (
+            /* 1-on-1 Chat Info - Show Participant Profile */
+            <div className="flex flex-col items-center py-4">
+              <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
+                {participant?.photoURL ? (
+                  <img
+                    src={participant.photoURL}
+                    alt={participant.username}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-2xl font-semibold text-muted-foreground">
+                    {participant?.username?.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-8 mt-2">
+                <div className="text-center">
+                  <p className="font-bold text-lg">{participantFollowers.length}</p>
+                  <p className="text-sm text-muted-foreground">Followers</p>
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-lg">{participantFollowing.length}</p>
+                  <p className="text-sm text-muted-foreground">Following</p>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6 w-full">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowUserInfoDialog(false);
+                    navigate(`/user/${participant?.uid}`);
+                  }}
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  View Profile
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
 

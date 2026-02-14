@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2, Loader2, Music, Heart, Send, AtSign } from 'lucide-react';
+import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2, Loader2, Music, Heart, Send } from 'lucide-react';
 import { doc, updateDoc, arrayUnion, arrayRemove, getDoc, deleteDoc, collection, query, where, getDocs, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,10 +60,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   const [loadingViewers, setLoadingViewers] = useState(false);
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
-  const [showMentionInput, setShowMentionInput] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
-  const [mentionResults, setMentionResults] = useState<ViewerInfo[]>([]);
-  const [mentionLoading, setMentionLoading] = useState(false);
   const [showLikers, setShowLikers] = useState(false);
   const [likers, setLikers] = useState<ViewerInfo[]>([]);
   const [loadingLikers, setLoadingLikers] = useState(false);
@@ -96,9 +92,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   }, [currentIndex, currentStory, userProfile]);
 
   useEffect(() => {
-    if (showViewers || showMentionInput || showLikers) return; // Pause timer when viewing panels
+    if (showViewers || showLikers) return; // Pause timer when viewing panels
     
-    const duration = currentStory?.mediaType === 'video' ? 15000 : 10000; // Minimum 10 seconds for images, 15 for videos
+    const duration = currentStory?.mediaType === 'video' ? 20000 : 15000; // 15 seconds for images, 20 for videos
     const interval = 16; // 60fps for smooth progress
     let elapsed = 0;
     let animationId: number;
@@ -133,7 +129,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
 
     animationId = requestAnimationFrame(updateProgress);
     return () => cancelAnimationFrame(animationId);
-  }, [currentIndex, localStories.length, onClose, currentStory, showViewers, showMentionInput, showLikers]);
+  }, [currentIndex, localStories.length, onClose, currentStory, showViewers, showLikers]);
 
   useEffect(() => {
     if (videoRef.current && currentStory?.mediaType === 'video') {
@@ -177,7 +173,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
           audio.currentTime = startTime;
         }, { once: true });
 
-        const storyDuration = currentStory.mediaType === 'video' ? 15 : 10;
+        const storyDuration = currentStory.mediaType === 'video' ? 20 : 15;
         const musicDuration = endTime ? (endTime - startTime) : storyDuration;
         const stopAfter = Math.min(musicDuration, storyDuration) * 1000;
         
@@ -322,104 +318,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     fetchLikers();
   }, [showLikers, currentStory]);
 
-  // Search users for mentions - start from 2 characters, filter by public/following/followers
-  useEffect(() => {
-    if (!mentionQuery.trim() || mentionQuery.trim().length < 2) {
-      setMentionResults([]);
-      return;
-    }
-
-    const searchTimeout = setTimeout(async () => {
-      setMentionLoading(true);
-      try {
-        const searchLower = mentionQuery.toLowerCase().trim();
-        
-        // Try with usernameLower field first (case-insensitive)
-        let snapshot;
-        try {
-          const usersQuery = query(
-            collection(db, 'users'),
-            where('usernameLower', '>=', searchLower),
-            where('usernameLower', '<=', searchLower + '\uf8ff'),
-            limit(30)
-          );
-          snapshot = await getDocs(usersQuery);
-        } catch {
-          // Fallback: query all and filter client-side
-          snapshot = null;
-        }
-        
-        // If usernameLower query returned nothing or failed, try username field + client filter
-        if (!snapshot || snapshot.empty) {
-          try {
-            const fallbackQuery = query(
-              collection(db, 'users'),
-              where('username', '>=', searchLower),
-              where('username', '<=', searchLower + '\uf8ff'),
-              limit(30)
-            );
-            const fallbackSnap = await getDocs(fallbackQuery);
-            if (fallbackSnap.empty) {
-              // Try broader search with limit
-              const broadQuery = query(
-                collection(db, 'users'),
-                limit(100)
-              );
-              snapshot = await getDocs(broadQuery);
-            } else {
-              snapshot = fallbackSnap;
-            }
-          } catch {
-            const broadQuery = query(
-              collection(db, 'users'),
-              limit(100)
-            );
-            snapshot = await getDocs(broadQuery);
-          }
-        }
-        
-        const results: ViewerInfo[] = [];
-        const currentFollowing = new Set(userProfile?.following || []);
-        const currentFollowers = new Set(userProfile?.followers || []);
-
-        snapshot?.forEach((docSnap) => {
-          if (docSnap.id !== userProfile?.uid) {
-            const data = docSnap.data();
-            const username = (data.username || '').toLowerCase();
-            const displayName = (data.displayName || '').toLowerCase();
-            
-            // Client-side filter to ensure match
-            if (!username.includes(searchLower) && !displayName.includes(searchLower)) {
-              return;
-            }
-            
-            const isPrivate = data.isPrivate === true;
-            const isFollowedByMe = currentFollowing.has(docSnap.id);
-            const isFollowingMe = currentFollowers.has(docSnap.id);
-
-            // Only allow mentioning: public accounts, or accounts you follow, or accounts that follow you
-            if (!isPrivate || isFollowedByMe || isFollowingMe) {
-              results.push({
-                uid: docSnap.id,
-                username: data.username || '',
-                displayName: data.displayName || '',
-                photoURL: data.photoURL || '',
-                isPrivate,
-              });
-            }
-          }
-        });
-        setMentionResults(results);
-      } catch (error) {
-        console.error('Error searching users:', error);
-      } finally {
-        setMentionLoading(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(searchTimeout);
-  }, [mentionQuery, userProfile?.uid, userProfile?.following, userProfile?.followers]);
-
   const handleDelete = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (deleting || !currentStory) return;
@@ -491,122 +389,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
     }
   }, [liked, currentStory, userProfile]);
 
-  const handleMention = useCallback(async (mentionedUser: ViewerInfo) => {
-    if (!userProfile || !currentStory) return;
-
-    // Prevent re-mentioning the same user on the same story
-    if (currentStory.mentions?.includes(mentionedUser.uid)) {
-      toast({ title: `@${mentionedUser.username} is already mentioned` });
-      setShowMentionInput(false);
-      setMentionQuery('');
-      setMentionResults([]);
-      return;
-    }
-    
-    try {
-      // Add mention to story
-      const storyRef = doc(db, 'stories', currentStory.id);
-      await updateDoc(storyRef, {
-        mentions: arrayUnion(mentionedUser.uid),
-      });
-
-      // Send notification to mentioned user
-      await addDoc(collection(db, 'notifications'), {
-        type: 'mention',
-        fromUserId: userProfile.uid,
-        fromUsername: userProfile.username,
-        fromUserPhoto: userProfile.photoURL || '',
-        toUserId: mentionedUser.uid,
-        storyId: currentStory.id,
-        storyMediaUrl: currentStory.mediaUrl,
-        storyMediaType: currentStory.mediaType,
-        message: 'mentioned you in their story',
-        read: false,
-        createdAt: serverTimestamp(),
-      });
-
-      // Auto-send a chat message to mentioned user
-      try {
-        // Check for existing conversation
-        const convQuery1 = query(
-          collection(db, 'conversations'),
-          where('participants', 'array-contains', userProfile.uid),
-          limit(50)
-        );
-        const convSnapshot = await getDocs(convQuery1);
-        let existingConvId: string | null = null;
-
-        convSnapshot.forEach((convDoc) => {
-          const participants = convDoc.data().participants as string[];
-          if (participants.includes(mentionedUser.uid)) {
-            existingConvId = convDoc.id;
-          }
-        });
-
-        if (existingConvId) {
-          // Add message to existing conversation
-          await addDoc(collection(db, 'conversations', existingConvId, 'messages'), {
-            senderId: userProfile.uid,
-            text: `📸 I mentioned you in my story!`,
-            mediaUrl: currentStory.mediaUrl,
-            mediaType: currentStory.mediaType === 'video' ? 'video' : 'image',
-            createdAt: serverTimestamp(),
-            seen: false,
-          });
-          await updateDoc(doc(db, 'conversations', existingConvId), {
-            lastMessage: '📸 I mentioned you in my story!',
-            lastMessageTime: serverTimestamp(),
-            unreadBy: [mentionedUser.uid],
-          });
-        } else {
-          // Create new conversation and send message
-          const newConvRef = await addDoc(collection(db, 'conversations'), {
-            participants: [userProfile.uid, mentionedUser.uid],
-            participantNames: {
-              [userProfile.uid]: userProfile.username,
-              [mentionedUser.uid]: mentionedUser.username,
-            },
-            participantPhotos: {
-              [userProfile.uid]: userProfile.photoURL || '',
-              [mentionedUser.uid]: mentionedUser.photoURL || '',
-            },
-            lastMessage: '📸 I mentioned you in my story!',
-            lastMessageTime: serverTimestamp(),
-            unreadBy: [mentionedUser.uid],
-            createdAt: serverTimestamp(),
-          });
-          await addDoc(collection(db, 'conversations', newConvRef.id, 'messages'), {
-            senderId: userProfile.uid,
-            text: `📸 I mentioned you in my story!`,
-            mediaUrl: currentStory.mediaUrl,
-            mediaType: currentStory.mediaType === 'video' ? 'video' : 'image',
-            createdAt: serverTimestamp(),
-            seen: false,
-          });
-        }
-      } catch (chatError) {
-        console.error('Error sending mention chat message:', chatError);
-        // Don't fail the mention if chat message fails
-      }
-
-      toast({ title: `@${mentionedUser.username} mentioned!` });
-
-      // Update local story state to prevent re-mentioning without Firestore refresh
-      setLocalStories(prev => prev.map(s =>
-        s.id === currentStory.id
-          ? { ...s, mentions: [...(s.mentions || []), mentionedUser.uid] }
-          : s
-      ));
-
-      setShowMentionInput(false);
-      setMentionQuery('');
-      setMentionResults([]);
-    } catch (error) {
-      console.error('Error mentioning user:', error);
-      toast({ title: 'Failed to mention user', variant: 'destructive' });
-    }
-  }, [currentStory, userProfile, toast]);
-
   const goNext = () => {
     // Stop music when moving to next story
     if (audioRef.current) {
@@ -619,7 +401,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       setCurrentIndex(prev => prev + 1);
       setProgress(0);
       setShowViewers(false);
-      setShowMentionInput(false);
       setShowLikers(false);
     } else {
       onClose();
@@ -638,7 +419,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       setCurrentIndex(prev => prev - 1);
       setProgress(0);
       setShowViewers(false);
-      setShowMentionInput(false);
       setShowLikers(false);
     }
   };
@@ -678,7 +458,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       className="fixed inset-0 z-[60] bg-black flex items-center justify-center"
       onClick={() => {
         if (showViewers) setShowViewers(false);
-        if (showMentionInput) { setShowMentionInput(false); setMentionQuery(''); setMentionResults([]); }
         if (showLikers) setShowLikers(false);
       }}
     >
@@ -716,29 +495,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       {/* Top right controls */}
       <div className="absolute top-10 right-4 z-20 flex items-center gap-2">
         {isOwnStory && (
-          <>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowMentionInput(!showMentionInput);
-                setShowViewers(false);
-              }}
-              className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
-            >
-              <AtSign className="w-5 h-5 text-white" />
-            </button>
-            <button
-              onClick={handleDelete}
-              className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
-              disabled={deleting}
-            >
-              {deleting ? (
-                <Loader2 className="w-5 h-5 text-white animate-spin" />
-              ) : (
-                <Trash2 className="w-5 h-5 text-white" />
-              )}
-            </button>
-          </>
+          <button
+            onClick={handleDelete}
+            className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+            disabled={deleting}
+          >
+            {deleting ? (
+              <Loader2 className="w-5 h-5 text-white animate-spin" />
+            ) : (
+              <Trash2 className="w-5 h-5 text-white" />
+            )}
+          </button>
         )}
         {(currentStory.mediaType === 'video' || currentStory.music) && (
           <button
@@ -839,18 +606,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         </div>
       )}
 
-      {/* Mentions overlay */}
-      {currentStory.mentions && currentStory.mentions.length > 0 && (
-        <div className="absolute bottom-16 left-4 z-10">
-          <div className="bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 flex items-center gap-1">
-            <AtSign className="w-3 h-3 text-white" />
-            <span className="text-white text-xs">{currentStory.mentions.length} mentioned</span>
-          </div>
-        </div>
-      )}
-
       {/* Navigation */}
-      {!showViewers && !showMentionInput && !showLikers && (
+      {!showViewers && !showLikers && (
         <>
           <button
             onClick={() => { if (!isLongPressed) goPrev(); }}
@@ -895,13 +652,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
             onClick={(e) => {
               e.stopPropagation();
               setShowViewers(!showViewers);
-              setShowMentionInput(false);
             }}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white"
+            className="flex items-center justify-center p-3 rounded-full bg-black/60 text-white"
           >
-            <Eye className="w-4 h-4" />
-            <span className="text-sm font-medium">{viewerCount} {viewerCount === 1 ? 'view' : 'views'}</span>
-            <ChevronUp className={`w-4 h-4 transition-transform ${showViewers ? 'rotate-180' : ''}`} />
+            <Eye className="w-5 h-5" />
+            <ChevronUp className={`w-4 h-4 ml-1 transition-transform ${showViewers ? 'rotate-180' : ''}`} />
           </motion.button>
         )}
 
@@ -913,7 +668,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
               e.stopPropagation();
               setShowLikers(!showLikers);
               setShowViewers(false);
-              setShowMentionInput(false);
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white"
           >
@@ -922,73 +676,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
           </motion.button>
         )}
       </div>
-
-      {/* Mention Input Panel */}
-      <AnimatePresence>
-        {showMentionInput && isOwnStory && (
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="absolute bottom-0 left-0 right-0 z-30 bg-background rounded-t-2xl max-h-[50vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-border">
-              <div className="w-12 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-4" />
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold">Mention @user</h3>
-                <button 
-                  onClick={() => { setShowMentionInput(false); setMentionQuery(''); setMentionResults([]); }}
-                  className="p-1.5 rounded-full hover:bg-secondary transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <Input
-                value={mentionQuery}
-                onChange={(e) => setMentionQuery(e.target.value)}
-                placeholder="Search username to mention..."
-                className="h-10 text-sm"
-                autoFocus
-              />
-            </div>
-            
-            <ScrollArea className="max-h-[calc(50vh-120px)]">
-              {mentionLoading ? (
-                <div className="flex justify-center py-8">
-                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : mentionQuery.trim().length > 0 && mentionQuery.trim().length < 2 ? (
-                <p className="text-center text-muted-foreground py-8 text-sm">Type at least 2 characters to search</p>
-              ) : mentionResults.length === 0 && mentionQuery.trim().length >= 2 ? (
-                <p className="text-center text-muted-foreground py-8">No users found (only public accounts &amp; followers/following)</p>
-              ) : (
-                <div className="p-4 space-y-2">
-                  {mentionResults.map((user) => (
-                    <button
-                      key={user.uid}
-                      onClick={() => handleMention(user)}
-                      className="flex items-center gap-3 w-full p-2 hover:bg-secondary rounded-lg transition-colors"
-                    >
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={user.photoURL} alt={user.username} />
-                        <AvatarFallback>{user.username.charAt(0).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div className="text-left">
-                        <span className="font-medium text-sm block">@{user.username}</span>
-                        {user.displayName && (
-                          <span className="text-xs text-muted-foreground block">{user.displayName}</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Viewers Panel */}
       <AnimatePresence>

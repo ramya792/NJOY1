@@ -31,6 +31,7 @@ const HelpCenter = React.lazy(() => import("@/pages/HelpCenter"));
 const TermsOfService = React.lazy(() => import("@/pages/TermsOfService"));
 const PrivacyPolicy = React.lazy(() => import("@/pages/PrivacyPolicy"));
 const VideoSongs = React.lazy(() => import("@/pages/VideoSongs"));
+const AIChats = React.lazy(() => import("@/pages/AIChats"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -90,6 +91,9 @@ const AppRoutes = () => (
         <Route path="/messages" element={<Messages />} />
         <Route path="/messages/requests" element={<MessageRequests />} />
         <Route path="/messages/:conversationId" element={<ChatRoom />} />
+        <Route path="/ai-chats" element={<AIChats />} />
+        <Route path="/chat/:conversationId" element={<ChatRoom />} />
+        <Route path="/chat/ai/:aiId" element={<ChatRoom />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/hidden-chats" element={<HiddenChats />} />

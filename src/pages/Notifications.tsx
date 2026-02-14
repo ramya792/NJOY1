@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Heart, UserPlus, UserCheck, UserX, MessageCircle, Film, AtSign, Plus, Image as ImageIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  collection, query, where, getDocs, doc, updateDoc, arrayUnion, deleteDoc, addDoc, serverTimestamp
+  collection, query, where, getDocs, doc, updateDoc, arrayUnion, deleteDoc, addDoc, serverTimestamp, onSnapshot, orderBy
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,34 +46,48 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
   const [showAddToStoryDialog, setShowAddToStoryDialog] = useState(false);
   const [selectedMentionNotification, setSelectedMentionNotification] = useState<Notification | null>(null);
   const [addingToStory, setAddingToStory] = useState(false);
+  const [showStoryViewer, setShowStoryViewer] = useState(false);
+  const [viewingStory, setViewingStory] = useState<Notification | null>(null);
+  
+  // Double tap detection
+  const tapTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const tapCountRef = React.useRef(0);
 
   useEffect(() => {
     if (!userProfile) return;
 
-    const fetchNotifications = async () => {
-      try {
-        const notificationsQuery = query(
-          collection(db, 'notifications'),
-          where('toUserId', '==', userProfile.uid)
-        );
-        const snapshot = await getDocs(notificationsQuery);
-        const fetched = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-          createdAt: d.data().createdAt?.toDate() || new Date(),
-        })) as Notification[];
-        
-        fetched.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-        setNotifications(fetched);
-      } catch (error) {
-        console.error('Error fetching notifications:', error);
-      } finally {
-        setLoading(false);
+    const notificationsQuery = query(
+      collection(db, 'notifications'),
+      where('toUserId', '==', userProfile.uid),
+      orderBy('createdAt', 'desc')
+    );
+    
+    // Use real-time listener for instant updates
+    const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
+      const fetched = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate() || new Date(),
+      })) as Notification[];
+      
+      setNotifications(fetched);
+      setLoading(false);
+    }, (error) => {
+      console.error('Error fetching notifications:', error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [userProfile]);
+
+  // Cleanup tap timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
       }
     };
-
-    fetchNotifications();
-  }, [userProfile]);
+  }, []);
 
   const handleAcceptFollow = async (notification: Notification) => {
     if (!userProfile) return;
@@ -127,8 +141,9 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
         }
         break;
       case 'message':
+      case 'mention':
         if (notification.conversationId) {
-          navigate(`/messages/${notification.conversationId}`);
+          navigate(`/chat/${notification.conversationId}`);
         } else {
           // Try to find conversation with this user
           navigate(`/messages/new?userId=${notification.fromUserId}`);
@@ -218,6 +233,32 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
     }
   };
 
+  const handleStoryPreviewTap = (notification: Notification, e: React.MouseEvent) => {
+    e.stopPropagation();
+    tapCountRef.current += 1;
+    
+    if (tapCountRef.current === 1) {
+      // First tap - wait for potential second tap
+      tapTimerRef.current = setTimeout(() => {
+        // Single tap - view story (only if not already in viewer)
+        if (!showStoryViewer) {
+          setViewingStory(notification);
+          setShowStoryViewer(true);
+        }
+        tapCountRef.current = 0;
+      }, 300);
+    } else if (tapCountRef.current === 2) {
+      // Double tap - add to story
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
+      }
+      setShowStoryViewer(false); // Close viewer if open
+      setSelectedMentionNotification(notification);
+      setShowAddToStoryDialog(true);
+      tapCountRef.current = 0;
+    }
+  };
+
   const getNotificationPreview = (notification: Notification) => {
     if (notification.postImage) {
       return (
@@ -237,13 +278,17 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
     
     if (notification.type === 'mention' && notification.storyMediaUrl) {
       return (
-        <div className="w-12 h-12 rounded overflow-hidden bg-secondary flex-shrink-0">
+        <button 
+          className="w-12 h-12 rounded overflow-hidden bg-secondary flex-shrink-0 relative group"
+          onClick={(e) => handleStoryPreviewTap(notification, e)}
+        >
           {notification.storyMediaType === 'video' ? (
             <video src={notification.storyMediaUrl} className="w-full h-full object-cover" />
           ) : (
             <img src={notification.storyMediaUrl} alt="" className="w-full h-full object-cover" />
           )}
-        </div>
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+        </button>
       );
     }
 
@@ -428,6 +473,67 @@ const Notifications = React.forwardRef<HTMLDivElement>((_, ref) => {
               {addingToStory ? 'Adding...' : 'Add to Story'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Story Viewer Dialog */}
+      <Dialog open={showStoryViewer} onOpenChange={setShowStoryViewer}>
+        <DialogContent className="p-0 overflow-hidden border-0 max-w-[500px] h-[80vh] bg-black">
+          <div 
+            className="relative w-full h-full flex items-center justify-center cursor-pointer"
+            onClick={(e) => {
+              if (viewingStory) {
+                handleStoryPreviewTap(viewingStory, e);
+              }
+            }}
+          >
+            {viewingStory && (
+              <>
+                {viewingStory.storyMediaType === 'video' ? (
+                  <video 
+                    src={viewingStory.storyMediaUrl} 
+                    className="w-full h-full object-contain"
+                    controls
+                    autoPlay
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <img 
+                    src={viewingStory.storyMediaUrl} 
+                    alt="Story" 
+                    className="w-full h-full object-contain" 
+                  />
+                )}
+                
+                {/* Story info overlay */}
+                <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary">
+                      {viewingStory.fromUserPhoto ? (
+                        <img 
+                          src={viewingStory.fromUserPhoto} 
+                          alt={viewingStory.fromUsername} 
+                          className="w-full h-full object-cover" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white font-semibold">
+                          {viewingStory.fromUsername?.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-white font-semibold">@{viewingStory.fromUsername}</span>
+                  </div>
+                </div>
+
+                {/* Double tap hint */}
+                <div className="absolute bottom-4 left-0 right-0 text-center">
+                  <p className="text-white/70 text-sm px-4 py-2 rounded-full bg-black/50 inline-block">
+                    Double tap to add to your story
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

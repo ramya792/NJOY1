@@ -79,6 +79,14 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
   const [liked, setLiked] = useState(post.likes?.includes(userProfile?.uid || ''));
   const [saved, setSaved] = useState(post.saves?.includes(userProfile?.uid || ''));
   const [likesCount, setLikesCount] = useState(post.likes?.length || 0);
+
+  // Helper to safely convert Firestore Timestamp to Date
+  const toSafeDate = (date: any): Date => {
+    if (!date) return new Date();
+    if (date.toDate && typeof date.toDate === 'function') return date.toDate();
+    if (date instanceof Date) return date;
+    return new Date();
+  };
   const [showHeart, setShowHeart] = useState(false);
   const [lastTap, setLastTap] = useState(0);
   const [downloading, setDownloading] = useState(false);
@@ -594,7 +602,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
                       </button>
                       <div className="flex-1">
                         <p className="text-sm emoji-text"><span className="font-semibold mr-1">{comment.username}</span>{comment.text}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{formatDistanceToNow(comment.createdAt, { addSuffix: true })}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{formatDistanceToNow(toSafeDate(comment.createdAt), { addSuffix: true })}</p>
                       </div>
                     </div>
                   ))}
@@ -608,7 +616,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
           )}
         </AnimatePresence>
 
-        <p className="text-xs text-muted-foreground mt-2">{formatDistanceToNow(post.createdAt, { addSuffix: true })}</p>
+        <p className="text-xs text-muted-foreground mt-2">{formatDistanceToNow(toSafeDate(post.createdAt), { addSuffix: true })}</p>
       </div>
       
       {/* Delete Confirmation Dialog */}

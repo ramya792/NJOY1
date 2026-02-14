@@ -347,7 +347,7 @@ const Settings: React.FC = () => {
     <div className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background pb-20">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
-        <div className="flex items-center h-14 px-4 max-w-lg mx-auto">
+        <div className="flex items-center h-14 px-4 sm:px-6 max-w-lg mx-auto">
           <button onClick={() => navigate('/profile')} className="p-2 -ml-2">
             <ArrowLeft className="w-6 h-6" />
           </button>
@@ -366,24 +366,24 @@ const Settings: React.FC = () => {
             transition={{ delay: sectionIndex * 0.05 }}
             className="py-4"
           >
-            <h2 className="px-4 text-sm font-semibold text-muted-foreground mb-2">
+            <h2 className="px-4 sm:px-6 text-sm font-semibold text-muted-foreground mb-2">
               {section.title}
             </h2>
             <div className="bg-card border-y border-border divide-y divide-border">
               {section.items.map((item) => (
                 <div
                   key={item.label}
-                  className={`flex items-center justify-between px-4 py-3 ${
+                  className={`flex items-center justify-between gap-4 px-4 sm:px-6 py-3 ${
                     item.action && !item.toggle ? 'cursor-pointer hover:bg-secondary/50 transition-colors' : ''
                   }`}
                   onClick={item.action && !item.toggle ? item.action : undefined}
                 >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="text-muted-foreground">{item.icon}</div>
+                  <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                    <div className="text-muted-foreground flex-shrink-0">{item.icon}</div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{item.label}</p>
+                      <p className="font-medium text-sm leading-tight">{item.label}</p>
                       {item.description && (
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground line-clamp-2 leading-tight mt-0.5">
                           {item.description}
                         </p>
                       )}
@@ -393,7 +393,7 @@ const Settings: React.FC = () => {
                     <Switch
                       checked={item.toggleValue}
                       onCheckedChange={item.onToggle}
-                      className="flex-shrink-0"
+                      className="flex-shrink-0 ml-auto"
                     />
                   ) : item.action ? (
                     <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
@@ -405,7 +405,7 @@ const Settings: React.FC = () => {
         ))}
 
         {/* Logout Button */}
-        <div className="px-4 py-6">
+        <div className="px-4 sm:px-6 py-6">
           <Button
             onClick={() => setShowLogoutDialog(true)}
             variant="destructive"
@@ -417,7 +417,7 @@ const Settings: React.FC = () => {
         </div>
 
         {/* App Version */}
-        <p className="text-center text-xs text-muted-foreground pb-6">
+        <p className="text-center text-xs text-muted-foreground pb-6 px-4">
           NJOY v1.0.0
         </p>
       </div>

@@ -82,7 +82,7 @@ const PostGrid: React.FC<PostGridProps> = ({
 
   if (loading) {
     return (
-      <div className="grid grid-cols-3 gap-0.5">
+      <div className="grid grid-cols-3 gap-[2px] mt-[2px]">
         {[1, 2, 3, 4, 5, 6].map((i) => (
           <div key={i} className="aspect-square skeleton" />
         ))}
@@ -103,7 +103,7 @@ const PostGrid: React.FC<PostGridProps> = ({
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-0.5">
+      <div className="grid grid-cols-3 gap-[2px] mt-[2px]">
         {posts.map((post, index) => (
           <motion.div
             key={post.id}

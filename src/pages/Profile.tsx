@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Grid3X3, Film, Bookmark, Tag, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, arrayRemove, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, arrayRemove, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,7 @@ interface Post {
   mediaType: 'image' | 'video';
   likes: string[];
   comments: number;
+  createdAt?: any;
 }
 
 interface SavedItem {
@@ -37,6 +38,14 @@ interface SavedItem {
   likes: string[];
   comments: number;
   type: 'post' | 'reel';
+  createdAt?: any;
+}
+
+interface FollowerUser {
+  uid: string;
+  username: string;
+  photoURL: string;
+  displayName: string;
 }
 
 const Profile: React.FC = () => {
@@ -46,6 +55,7 @@ const Profile: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [reels, setReels] = useState<Post[]>([]);
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+  const [followerUsers, setFollowerUsers] = useState<FollowerUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedSavedItem, setSelectedSavedItem] = useState<SavedItem | null>(null);
@@ -54,14 +64,50 @@ const Profile: React.FC = () => {
   const [viewingSavedItem, setViewingSavedItem] = useState<SavedItem | null>(null);
   const [showShareDialog, setShowShareDialog] = useState(false);
 
+  // Fetch followers data
+  useEffect(() => {
+    if (!userProfile || !userProfile.followers || userProfile.followers.length === 0) {
+      setFollowerUsers([]);
+      return;
+    }
+
+    const fetchFollowers = async () => {
+      try {
+        // Get unique followers
+        const uniqueFollowerIds = [...new Set(userProfile.followers)];
+        
+        // Fetch follower user data
+        const followerPromises = uniqueFollowerIds.slice(0, 10).map(async (followerId) => {
+          const userDoc = await getDoc(doc(db, 'users', followerId));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            return {
+              uid: userDoc.id,
+              username: data.username || '',
+              photoURL: data.photoURL || '',
+              displayName: data.displayName || '',
+            };
+          }
+          return null;
+        });
+
+        const followers = (await Promise.all(followerPromises)).filter(Boolean) as FollowerUser[];
+        setFollowerUsers(followers);
+      } catch (error) {
+        console.error('Error fetching followers:', error);
+      }
+    };
+
+    fetchFollowers();
+  }, [userProfile]);
+
   useEffect(() => {
     if (!userProfile) return;
 
     // Fetch user's posts
     const postsQuery = query(
       collection(db, 'posts'),
-      where('userId', '==', userProfile.uid),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userProfile.uid)
     );
 
     const unsubscribePosts = onSnapshot(postsQuery, (snapshot) => {
@@ -69,6 +115,14 @@ const Profile: React.FC = () => {
         id: doc.id,
         ...doc.data(),
       })) as Post[];
+      
+      // Sort by createdAt in descending order
+      fetchedPosts.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
+        return bTime - aTime;
+      });
+      
       setPosts(fetchedPosts);
       setLoading(false);
     });
@@ -76,8 +130,7 @@ const Profile: React.FC = () => {
     // Fetch user's reels
     const reelsQuery = query(
       collection(db, 'reels'),
-      where('userId', '==', userProfile.uid),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userProfile.uid)
     );
 
     const unsubscribeReels = onSnapshot(reelsQuery, (snapshot) => {
@@ -87,7 +140,16 @@ const Profile: React.FC = () => {
         mediaType: 'video' as const,
         likes: doc.data().likes || [],
         comments: doc.data().comments || 0,
+        createdAt: doc.data().createdAt,
       }));
+      
+      // Sort by createdAt in descending order
+      fetchedReels.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
+        return bTime - aTime;
+      });
+      
       setReels(fetchedReels);
     });
 
@@ -217,55 +279,26 @@ const Profile: React.FC = () => {
         onShareClick={() => setShowShareDialog(true)}
       />
 
-      {/* Story Highlights */}
-      <div className="max-w-lg mx-auto px-4 pb-3 border-b border-border">
-        <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-1">
-          <button className="flex flex-col items-center gap-1.5 flex-shrink-0">
-            <div className="w-16 h-16 rounded-full border border-border bg-secondary/50 flex items-center justify-center">
-              <span className="text-2xl">➕</span>
-            </div>
-            <span className="text-xs text-muted-foreground">New</span>
-          </button>
-          {/* Placeholder highlights - can be populated from Firebase later */}
-          {['Moments', 'Travel', 'Food'].map((highlight, idx) => (
-            <button key={idx} className="flex flex-col items-center gap-1.5 flex-shrink-0">
-              <div className="w-16 h-16 rounded-full border-2 border-muted-foreground/20 overflow-hidden bg-secondary">
-                <div className="w-full h-full flex items-center justify-center text-2xl">
-                  {['✨', '🌍', '🍕'][idx]}
-                </div>
-              </div>
-              <span className="text-xs text-foreground/80">{highlight}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Tabs - Instagram style */}
-      <Tabs defaultValue="posts" className="max-w-lg mx-auto w-full">
-        <TabsList className="w-full bg-transparent border-t border-border rounded-none h-11 p-0">
+      <Tabs defaultValue="posts" className="max-w-lg mx-auto w-full mt-[14px]">
+        <TabsList className="w-full bg-transparent border-t border-border rounded-none h-11 p-0 mb-1.5">
           <TabsTrigger 
             value="posts" 
             className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
           >
-            <Grid3X3 className="w-5 h-5" />
+            <Grid3X3 className="w-[22px] h-[22px]" />
           </TabsTrigger>
           <TabsTrigger 
             value="reels" 
             className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
           >
-            <Film className="w-5 h-5" />
-          </TabsTrigger>
-          <TabsTrigger 
-            value="tagged" 
-            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
-          >
-            <Tag className="w-5 h-5" />
+            <Film className="w-[22px] h-[22px]" />
           </TabsTrigger>
           <TabsTrigger 
             value="saved" 
             className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
           >
-            <Bookmark className="w-5 h-5" />
+            <Bookmark className="w-[22px] h-[22px]" />
           </TabsTrigger>
         </TabsList>
 
@@ -291,24 +324,8 @@ const Profile: React.FC = () => {
           />
         </TabsContent>
 
-        <TabsContent value="tagged" className="mt-0">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex flex-col items-center justify-center py-20 px-4 text-center"
-          >
-            <div className="w-20 h-20 rounded-full bg-secondary flex items-center justify-center mb-4">
-              <Tag className="w-10 h-10 text-muted-foreground" />
-            </div>
-            <h3 className="font-semibold text-lg mb-2">Photos of you</h3>
-            <p className="text-sm text-muted-foreground max-w-xs">
-              When people tag you in photos, they'll appear here.
-            </p>
-          </motion.div>
-        </TabsContent>
-
         <TabsContent value="saved" className="mt-0">
-          {savedItems.length === 0 ? (
+          {savedItems.length === 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -322,8 +339,9 @@ const Profile: React.FC = () => {
                 Save posts and reels to view them here later.
               </p>
             </motion.div>
-          ) : (
-            <div className="grid grid-cols-3 gap-0.5">
+          )}
+          {savedItems.length > 0 && (
+            <div className="grid grid-cols-3 gap-[2px] mt-[2px]">
               {savedItems.map((item, index) => (
                 <SavedItemCard
                   key={`${item.type}-${item.id}`}

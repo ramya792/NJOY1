@@ -56,8 +56,8 @@ const StoriesBar: React.FC = () => {
           createdAt: doc.data().createdAt?.toDate() || new Date(),
         })) as Story[];
 
-        // Sort client-side
-        stories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        // Sort client-side: oldest first so old stories play before new ones
+        stories.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
         // Separate my stories
         const myStoriesFiltered = stories.filter(s => s.userId === userProfile.uid);
@@ -137,13 +137,12 @@ const StoriesBar: React.FC = () => {
           <div className="flex flex-col items-center flex-shrink-0">
             <div className="relative">
               {myStories.length > 0 ? (
-                <button onClick={() => setViewingStories(myStories)}>
-                  <StoryCircle
-                    imageUrl={userProfile?.photoURL || ''}
-                    hasUnviewed={false}
-                    size="lg"
-                  />
-                </button>
+                <StoryCircle
+                  imageUrl={userProfile?.photoURL || ''}
+                  hasUnviewed={false}
+                  size="lg"
+                  onClick={() => setViewingStories(myStories)}
+                />
               ) : (
                 <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
                   {userProfile?.photoURL ? (

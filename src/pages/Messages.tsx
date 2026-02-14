@@ -9,6 +9,7 @@ import MessageListItem from '@/components/messages/MessageListItem';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import CreateGroupChat from '@/components/messages/CreateGroupChat';
 import {
   Dialog,
   DialogContent,
@@ -46,6 +47,7 @@ const Messages: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [showNewMessageDialog, setShowNewMessageDialog] = useState(false);
+  const [showGroupChatDialog, setShowGroupChatDialog] = useState(false);
   
   // Scroll position memory
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -103,25 +105,46 @@ const Messages: React.FC = () => {
       orderBy('lastMessageTime', 'desc')
     );
 
-    const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
-      const fetchedConversations = snapshot.docs.map((doc) => {
-        const data = doc.data();
+    const unsubscribe = onSnapshot(conversationsQuery, async (snapshot) => {
+      const conversationsPromises = snapshot.docs.map(async (docSnapshot) => {
+        const data = docSnapshot.data();
         const otherParticipantId = data.participants.find(
           (p: string) => p !== userProfile.uid
         );
         
+        // Fetch real-time user data instead of using cached values
+        let participantName = 'User';
+        let participantPhoto = '';
+        
+        if (otherParticipantId) {
+          try {
+            const userDoc = await getDoc(doc(db, 'users', otherParticipantId));
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
+              participantName = userData.username || 'User';
+              participantPhoto = userData.photoURL || '';
+            }
+          } catch (error) {
+            console.error('Error fetching participant data:', error);
+            // Fallback to cached values if fetch fails
+            participantName = data.participantNames?.[otherParticipantId] || 'User';
+            participantPhoto = data.participantPhotos?.[otherParticipantId] || '';
+          }
+        }
+        
         return {
-          id: doc.id,
+          id: docSnapshot.id,
           participantId: otherParticipantId,
-          participantName: data.participantNames?.[otherParticipantId] || 'User',
-          participantPhoto: data.participantPhotos?.[otherParticipantId] || '',
+          participantName,
+          participantPhoto,
           lastMessage: data.lastMessage || '',
           lastMessageTime: data.lastMessageTime?.toDate() || new Date(),
           unread: data.unreadBy?.includes(userProfile.uid) || false,
         };
-      }) as Conversation[];
+      });
       
-      setConversations(fetchedConversations);
+      const fetchedConversations = await Promise.all(conversationsPromises);
+      setConversations(fetchedConversations as Conversation[]);
       setLoading(false);
     });
 
@@ -363,12 +386,7 @@ const Messages: React.FC = () => {
           <div className="border-b border-border">
             {/* Group Chat Option */}
             <button
-              onClick={() => {
-                toast({
-                  title: 'Coming Soon',
-                  description: 'Group chat feature will be available soon!',
-                });
-              }}
+              onClick={() => setShowGroupChatDialog(true)}
               className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors"
             >
               <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
@@ -381,12 +399,7 @@ const Messages: React.FC = () => {
 
             {/* AI Chats Option */}
             <button
-              onClick={() => {
-                toast({
-                  title: 'Coming Soon',
-                  description: 'AI chat feature will be available soon!',
-                });
-              }}
+              onClick={() => navigate('/ai-chats')}
               className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors"
             >
               <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
@@ -404,12 +417,7 @@ const Messages: React.FC = () => {
           <div className="py-4 border-b border-border">
             <h3 className="px-4 mb-3 text-base font-semibold text-foreground">Suggested</h3>
             <button
-              onClick={() => {
-                toast({
-                  title: 'Meta AI Chat',
-                  description: 'AI assistant coming soon! Get help, ask questions, and more.',
-                });
-              }}
+              onClick={() => navigate('/chat/ai/meta-ai')}
               className="w-full flex items-center gap-4 px-4 py-3 hover:bg-secondary/50 transition-colors"
             >
               {/* Meta AI Gradient Icon */}
@@ -515,10 +523,7 @@ const Messages: React.FC = () => {
             <button
               onClick={() => {
                 setShowNewMessageDialog(false);
-                toast({
-                  title: 'Coming Soon',
-                  description: 'Group chat feature will be available soon!',
-                });
+                setShowGroupChatDialog(true);
               }}
               className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors border-b"
             >
@@ -535,10 +540,7 @@ const Messages: React.FC = () => {
             <button
               onClick={() => {
                 setShowNewMessageDialog(false);
-                toast({
-                  title: 'Coming Soon',
-                  description: 'AI chat feature will be available soon!',
-                });
+                navigate('/ai-chats');
               }}
               className="w-full flex items-center gap-4 p-4 hover:bg-secondary/50 transition-colors border-b"
             >
@@ -557,10 +559,7 @@ const Messages: React.FC = () => {
               <button
                 onClick={() => {
                   setShowNewMessageDialog(false);
-                  toast({
-                    title: 'Meta AI Chat',
-                    description: 'AI assistant coming soon!',
-                  });
+                  navigate('/chat/ai/meta-ai');
                 }}
                 className="w-full flex items-center gap-3 p-2 hover:bg-secondary/50 transition-colors rounded-lg"
               >
@@ -626,6 +625,12 @@ const Messages: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Group Chat Creation Dialog */}
+      <CreateGroupChat
+        open={showGroupChatDialog}
+        onOpenChange={setShowGroupChatDialog}
+      />
     </div>
   );
 };

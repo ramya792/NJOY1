@@ -153,20 +153,35 @@ const UserProfile: React.FC = () => {
     if (!userId || !profile) return;
     if (!canViewContent) { setPosts([]); setReels([]); return; }
 
-    const postsQuery = query(collection(db, 'posts'), where('userId', '==', userId), orderBy('createdAt', 'desc'));
+    const postsQuery = query(collection(db, 'posts'), where('userId', '==', userId));
     const unsubPosts = onSnapshot(postsQuery, (snapshot) => {
-      setPosts(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[]);
+      const fetchedPosts = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Post[];
+      // Sort by createdAt in descending order
+      fetchedPosts.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
+        return bTime - aTime;
+      });
+      setPosts(fetchedPosts);
     });
 
-    const reelsQuery = query(collection(db, 'reels'), where('userId', '==', userId), orderBy('createdAt', 'desc'));
+    const reelsQuery = query(collection(db, 'reels'), where('userId', '==', userId));
     const unsubReels = onSnapshot(reelsQuery, (snapshot) => {
-      setReels(snapshot.docs.map((d) => ({
+      const fetchedReels = snapshot.docs.map((d) => ({
         id: d.id,
         mediaUrl: d.data().videoUrl,
         mediaType: 'video' as const,
         likes: d.data().likes || [],
         comments: d.data().comments || 0,
-      })));
+        createdAt: d.data().createdAt,
+      }));
+      // Sort by createdAt in descending order
+      fetchedReels.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
+        return bTime - aTime;
+      });
+      setReels(fetchedReels);
     });
 
     return () => { unsubPosts(); unsubReels(); };
@@ -376,9 +391,9 @@ const UserProfile: React.FC = () => {
       </header>
 
       {/* Profile Info */}
-      <div className="max-w-lg mx-auto px-4 py-3">
-        <div className="flex items-center gap-4 mb-3">
-          <div className="w-[88px] h-[88px] rounded-full overflow-hidden bg-secondary flex-shrink-0 relative">
+      <div className="max-w-lg mx-auto px-4 py-4">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary flex-shrink-0 relative">
             {profile.photoURL ? (
               <img src={profile.photoURL} alt={profile.username} className="w-full h-full object-cover" />
             ) : (
@@ -392,43 +407,43 @@ const UserProfile: React.FC = () => {
           </div>
 
           <div className="flex-1">
-            <div className="flex items-center justify-evenly">
+            <div className="flex items-center justify-around">
               <div className="text-center">
-                <p className="font-bold text-base leading-tight">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
+                <p className="font-semibold text-sm leading-tight">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
                 <p className="text-xs text-muted-foreground leading-tight mt-0.5">posts</p>
               </div>
               <div 
                 className={`text-center ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
                 onClick={() => canViewContent && setShowFollowers(true)}
               >
-                <p className="font-bold text-base leading-tight">{canViewContent ? uniqueFollowers.length : '—'}</p>
+                <p className="font-semibold text-sm leading-tight">{canViewContent ? uniqueFollowers.length : '—'}</p>
                 <p className="text-xs text-muted-foreground leading-tight mt-0.5">followers</p>
               </div>
               <div 
                 className={`text-center ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
                 onClick={() => canViewContent && setShowFollowing(true)}
               >
-                <p className="font-bold text-base leading-tight">{canViewContent ? uniqueFollowing.length : '—'}</p>
+                <p className="font-semibold text-sm leading-tight">{canViewContent ? uniqueFollowing.length : '—'}</p>
                 <p className="text-xs text-muted-foreground leading-tight mt-0.5">following</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mb-3">
+        <div className="mb-4">
           <div className="flex items-center gap-2">
-            <p className="font-semibold text-sm leading-tight">{profile.displayName || profile.username}</p>
-            {profile.isPrivate && <Lock className="w-3 h-3 text-muted-foreground" />}
+            <p className="font-semibold text-sm">{profile.displayName || profile.username}</p>
+            {profile.isPrivate && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
           </div>
-          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap mt-1 leading-tight text-foreground/90">{profile.bio}</p>}
+          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap mt-1 text-muted-foreground">{profile.bio}</p>}
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Button
             onClick={handleFollowAction}
             disabled={actionLoading || followStatus === 'requested'}
-            className={`flex-1 h-8 text-sm ${followStatus === 'following' || followStatus === 'requested' ? '' : 'btn-gradient'}`}
+            className={`flex-1 h-8 text-sm font-semibold ${followStatus === 'following' || followStatus === 'requested' ? '' : 'btn-gradient'}`}
             variant={followStatus === 'following' || followStatus === 'requested' ? 'secondary' : 'default'}
             size="sm"
           >
