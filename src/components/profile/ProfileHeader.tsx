@@ -69,12 +69,12 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 
   return (
     <>
-      <div className="max-w-lg mx-auto px-4 pt-[14px] pb-2">
+      <div className="w-full px-4 pt-4 pb-2">
         {/* Top row: Avatar + Stats side by side */}
-        <div className="flex items-center gap-[14px] mb-2.5">
+        <div className="flex items-center gap-5 mb-3">
           {/* Avatar */}
           <div 
-            className="w-[84px] h-[84px] rounded-full overflow-hidden bg-secondary flex-shrink-0 cursor-pointer active:scale-95 transition-transform ring-2 ring-border"
+            className="w-[86px] h-[86px] rounded-full overflow-hidden bg-secondary flex-shrink-0 cursor-pointer active:scale-95 transition-transform ring-[3px] ring-border"
             onClick={handleAvatarTap}
           >
             {localProfile.photoURL ? (
@@ -91,44 +91,44 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           </div>
 
           {/* Stats row */}
-          <div className="flex-1 flex items-center justify-around">
-            <div className="text-center min-w-[50px]">
-              <p className="font-bold text-base leading-tight">{localProfile.postsCount || 0}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">posts</p>
+          <div className="flex-1 flex items-center justify-evenly">
+            <div className="text-center min-w-[56px]">
+              <p className="font-bold text-[17px] leading-tight">{localProfile.postsCount || 0}</p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">posts</p>
             </div>
             <button 
-              className="text-center min-w-[50px] hover:opacity-70 transition-opacity"
+              className="text-center min-w-[56px] hover:opacity-70 transition-opacity"
               onClick={() => setShowFollowers(true)}
             >
-              <p className="font-bold text-base leading-tight">{uniqueFollowers.length}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">followers</p>
+              <p className="font-bold text-[17px] leading-tight">{uniqueFollowers.length}</p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">followers</p>
             </button>
             <button 
-              className="text-center min-w-[50px] hover:opacity-70 transition-opacity"
+              className="text-center min-w-[56px] hover:opacity-70 transition-opacity"
               onClick={() => setShowFollowing(true)}
             >
-              <p className="font-bold text-base leading-tight">{uniqueFollowing.length}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">following</p>
+              <p className="font-bold text-[17px] leading-tight">{uniqueFollowing.length}</p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">following</p>
             </button>
           </div>
         </div>
 
         {/* Bio section */}
-        <div className="mt-1.5 mb-3">
-          <p className="font-semibold text-sm mb-1.5">{localProfile.displayName || localProfile.username}</p>
+        <div className="mt-1 mb-3">
+          <p className="font-semibold text-[15px] leading-snug">{localProfile.displayName || localProfile.username}</p>
           {localProfile.bio && (
-            <p className="text-sm whitespace-pre-wrap text-muted-foreground leading-[18px]">{localProfile.bio}</p>
+            <p className="text-sm whitespace-pre-wrap text-muted-foreground leading-[18px] mt-1">{localProfile.bio}</p>
           )}
         </div>
 
         {/* Action buttons */}
         {isOwnProfile && (
-          <div className="flex items-center gap-2 mt-3 mb-[14px]">
+          <div className="flex items-center gap-2 mt-2 mb-3">
             <Button
               onClick={onEditClick}
               variant="secondary"
               size="sm"
-              className="flex-1 font-semibold h-9 py-2 px-[14px] text-sm rounded-lg"
+              className="flex-1 font-semibold h-[34px] py-1.5 px-4 text-sm rounded-lg"
             >
               Edit profile
             </Button>
@@ -136,7 +136,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
               onClick={onShareClick}
               variant="secondary"
               size="sm"
-              className="flex-1 font-semibold h-9 py-2 px-[14px] text-sm rounded-lg"
+              className="flex-1 font-semibold h-[34px] py-1.5 px-4 text-sm rounded-lg"
             >
               Share profile
             </Button>

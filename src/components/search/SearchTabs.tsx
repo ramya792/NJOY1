@@ -1,13 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search as SearchIcon, X, Users, Music, Hash, Film, Loader2, Youtube, Play, Heart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search as SearchIcon, X, Users, Music, Hash, Film, Loader2, Youtube, Play, Heart, ArrowLeft } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import UserSearchResult from './UserSearchResult';
 import ReelSearchResult from './ReelSearchResult';
 import MusicSearch from './MusicSearch';
@@ -65,11 +63,16 @@ const SearchTabs: React.FC = () => {
       return true;
     }
   });
-  const [selectedPost, setSelectedPost] = useState<any>(null);
-  const [selectedReel, setSelectedReel] = useState<any>(null);
-  const [currentExploreIndex, setCurrentExploreIndex] = useState<number>(0);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [loadingModal, setLoadingModal] = useState(false);
+  const [showFeedView, setShowFeedView] = useState(false);
+  const [feedItems, setFeedItems] = useState<any[]>([]);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [clickedIndex, setClickedIndex] = useState<number>(0);
+  const [activeReelId, setActiveReelId] = useState<string | null>(null);
+  const [feedType, setFeedType] = useState<'post' | 'reel'>('post');
+  const [currentReelIndex, setCurrentReelIndex] = useState(0);
+  const reelContainerRef = useRef<HTMLDivElement>(null);
+  const isReelAnimatingRef = useRef(false);
+  const feedScrollRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(30); // Lazy loading count
 
   // Private user filtering
@@ -118,66 +121,194 @@ const SearchTabs: React.FC = () => {
     setVisibleExploreFeed(filtered);
   }, [exploreFeed, privateUsers, userProfile?.uid]);
 
-  // Load item at specific index in explore feed
-  const loadExploreItemAtIndex = useCallback(async (index: number) => {
-    if (index < 0 || index >= visibleExploreFeed.length) return;
-    
-    setLoadingModal(true);
-    setCurrentExploreIndex(index);
-    const item = visibleExploreFeed[index];
+  // Open full-screen feed view starting from clicked index
+  const openFeedView = useCallback(async (startIndex: number) => {
+    setFeedLoading(true);
+    setShowFeedView(true);
     
     try {
-      if (item.source === 'reel') {
-        const reelDoc = await getDoc(doc(db, 'reels', item.id));
-        if (reelDoc.exists()) {
-          setSelectedReel({ id: reelDoc.id, ...reelDoc.data() });
-          setSelectedPost(null);
+      const clickedItem = visibleExploreFeed[startIndex];
+      const clickedType = clickedItem.source; // 'post' or 'reel'
+      setFeedType(clickedType);
+      
+      // Filter items to only show the same type (posts or reels)
+      const sameTypeItems = visibleExploreFeed
+        .map((item, i) => ({ ...item, _origIndex: i }))
+        .filter(item => item.source === clickedType);
+      
+      // Find the clicked item's position within the filtered list
+      const clickedFilteredIndex = sameTypeItems.findIndex(item => item._origIndex === startIndex);
+      setClickedIndex(clickedFilteredIndex);
+      
+      // Load priority items first (around clicked index in filtered list)
+      const priorityStart = Math.max(0, clickedFilteredIndex - 3);
+      const priorityEnd = Math.min(sameTypeItems.length, clickedFilteredIndex + 7);
+      
+      const priorityPromises = sameTypeItems.slice(priorityStart, priorityEnd).map(async (item, i) => {
+        try {
+          if (item.source === 'reel') {
+            const reelDoc = await getDoc(doc(db, 'reels', item.id));
+            if (reelDoc.exists()) {
+              return { ...reelDoc.data(), id: reelDoc.id, _type: 'reel', _origIndex: priorityStart + i };
+            }
+          } else {
+            const postDoc = await getDoc(doc(db, 'posts', item.id));
+            if (postDoc.exists()) {
+              return { ...postDoc.data(), id: postDoc.id, _type: 'post', _origIndex: priorityStart + i };
+            }
+          }
+        } catch (e) {
+          console.error('Error loading item:', e);
         }
-      } else {
-        const postDoc = await getDoc(doc(db, 'posts', item.id));
-        if (postDoc.exists()) {
-          setSelectedPost({ id: postDoc.id, ...postDoc.data() });
-          setSelectedReel(null);
-        }
+        return null;
+      });
+      
+      const priorityResults = (await Promise.all(priorityPromises)).filter(Boolean);
+      setFeedItems(priorityResults);
+      setFeedLoading(false);
+      
+      // Then load the rest in background batches
+      const remainingIndices = sameTypeItems
+        .map((_, i) => i)
+        .filter(i => i < priorityStart || i >= priorityEnd);
+      
+      const batchSize = 10;
+      let allLoaded = [...priorityResults];
+      
+      for (let b = 0; b < remainingIndices.length; b += batchSize) {
+        const batchIndices = remainingIndices.slice(b, b + batchSize);
+        const batchPromises = batchIndices.map(async (idx) => {
+          const item = sameTypeItems[idx];
+          try {
+            if (item.source === 'reel') {
+              const reelDoc = await getDoc(doc(db, 'reels', item.id));
+              if (reelDoc.exists()) {
+                return { ...reelDoc.data(), id: reelDoc.id, _type: 'reel', _origIndex: idx };
+              }
+            } else {
+              const postDoc = await getDoc(doc(db, 'posts', item.id));
+              if (postDoc.exists()) {
+                return { ...postDoc.data(), id: postDoc.id, _type: 'post', _origIndex: idx };
+              }
+            }
+          } catch (e) {
+            console.error('Error loading item:', e);
+          }
+          return null;
+        });
+        
+        const batchResults = (await Promise.all(batchPromises)).filter(Boolean);
+        allLoaded = [...allLoaded, ...batchResults];
+        // Sort by original index to maintain order
+        allLoaded.sort((a: any, b: any) => a._origIndex - b._origIndex);
+        setFeedItems([...allLoaded]);
       }
     } catch (error) {
-      console.error('Error loading content:', error);
-    } finally {
-      setLoadingModal(false);
+      console.error('Error loading feed:', error);
+      setFeedLoading(false);
     }
   }, [visibleExploreFeed]);
 
-  // Navigate to next item
-  const goToNextExploreItem = useCallback(() => {
-    if (currentExploreIndex < visibleExploreFeed.length - 1) {
-      loadExploreItemAtIndex(currentExploreIndex + 1);
-    }
-  }, [currentExploreIndex, visibleExploreFeed.length, loadExploreItemAtIndex]);
-
-  // Navigate to previous item
-  const goToPrevExploreItem = useCallback(() => {
-    if (currentExploreIndex > 0) {
-      loadExploreItemAtIndex(currentExploreIndex - 1);
-    }
-  }, [currentExploreIndex, loadExploreItemAtIndex]);
-
-  // Keyboard navigation
+  // Auto-scroll to the clicked item when feed opens
+  const hasScrolledRef = useRef(false);
   useEffect(() => {
-    if (!modalOpen) return;
+    if (!showFeedView || feedLoading || feedItems.length === 0 || hasScrolledRef.current) return;
+    
+    hasScrolledRef.current = true;
+    setTimeout(() => {
+      // Find the clicked item by _origIndex
+      const targetItem = feedItems.find((item: any) => item._origIndex === clickedIndex);
+      if (targetItem) {
+        const targetElement = document.getElementById(`feed-item-${targetItem.id}`);
+        if (targetElement) {
+          targetElement.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }
+      }
+    }, 100);
+  }, [showFeedView, feedLoading, feedItems.length]);
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        goToNextExploreItem();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        goToPrevExploreItem();
+  // Reset scroll ref when feed closes
+  useEffect(() => {
+    if (!showFeedView) {
+      hasScrolledRef.current = false;
+      setActiveReelId(null);
+      setCurrentReelIndex(0);
+    }
+  }, [showFeedView]);
+
+  // Scroll to reel index when feed opens (for reel type)
+  useEffect(() => {
+    if (!showFeedView || feedLoading || feedItems.length === 0 || feedType !== 'reel') return;
+    setTimeout(() => {
+      if (reelContainerRef.current) {
+        const height = reelContainerRef.current.clientHeight;
+        reelContainerRef.current.scrollTo({ top: clickedIndex * height, behavior: 'auto' });
+        setCurrentReelIndex(clickedIndex);
+        setActiveReelId(feedItems[clickedIndex]?.id || null);
+      }
+    }, 100);
+  }, [showFeedView, feedLoading, feedItems.length, feedType]);
+
+  // Reel snap scroll detection
+  useEffect(() => {
+    if (!showFeedView || feedType !== 'reel') return;
+    const container = reelContainerRef.current;
+    if (!container) return;
+
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        const height = container.clientHeight;
+        if (height === 0) return;
+        const newIndex = Math.round(container.scrollTop / height);
+        const clamped = Math.max(0, Math.min(newIndex, feedItems.length - 1));
+        setCurrentReelIndex(clamped);
+        setActiveReelId(feedItems[clamped]?.id || null);
+        isReelAnimatingRef.current = false;
+      }, 150);
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, [showFeedView, feedType, feedItems]);
+
+  // Wheel handler for reel snap scroll (desktop)
+  useEffect(() => {
+    if (!showFeedView || feedType !== 'reel') return;
+    const container = reelContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (isReelAnimatingRef.current) return;
+      if (e.deltaY > 30) {
+        const nextIndex = Math.min(currentReelIndex + 1, feedItems.length - 1);
+        if (nextIndex !== currentReelIndex) {
+          isReelAnimatingRef.current = true;
+          container.scrollTo({ top: nextIndex * container.clientHeight, behavior: 'smooth' });
+          setCurrentReelIndex(nextIndex);
+          setActiveReelId(feedItems[nextIndex]?.id || null);
+          setTimeout(() => { isReelAnimatingRef.current = false; }, 600);
+        }
+      } else if (e.deltaY < -30) {
+        const prevIndex = Math.max(currentReelIndex - 1, 0);
+        if (prevIndex !== currentReelIndex) {
+          isReelAnimatingRef.current = true;
+          container.scrollTo({ top: prevIndex * container.clientHeight, behavior: 'smooth' });
+          setCurrentReelIndex(prevIndex);
+          setActiveReelId(feedItems[prevIndex]?.id || null);
+          setTimeout(() => { isReelAnimatingRef.current = false; }, 600);
+        }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modalOpen, goToNextExploreItem, goToPrevExploreItem]);
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [showFeedView, feedType, currentReelIndex, feedItems]);
 
   useEffect(() => {
     const fetchTrending = async () => {
@@ -789,8 +920,7 @@ const SearchTabs: React.FC = () => {
                     animate={{ opacity: 1 }}
                     transition={{ delay: Math.min(index * 0.02, 0.5) }}
                     onClick={() => {
-                      setModalOpen(true);
-                      loadExploreItemAtIndex(index);
+                      openFeedView(index);
                     }}
                     className={`relative group overflow-hidden bg-secondary ${
                       isLargeTile ? 'col-span-2 row-span-2' : ''
@@ -844,67 +974,82 @@ const SearchTabs: React.FC = () => {
         </div>
       )}
 
-      {/* Modal for viewing posts and reels */}
-      <Dialog open={modalOpen} onOpenChange={(open) => {
-        setModalOpen(open);
-        if (!open) {
-          setSelectedPost(null);
-          setSelectedReel(null);
-        }
-      }}>
-        <DialogContent className={`p-0 overflow-hidden border-0 ${
-          selectedReel ? 'max-w-[500px] h-[90vh] bg-black' : 'max-w-5xl max-h-[90vh] bg-background'
-        }`}>
-          <VisuallyHidden>
-            <DialogTitle>{selectedPost ? 'Post' : selectedReel ? 'Reel' : 'Content'}</DialogTitle>
-            <DialogDescription>
-              {selectedPost ? 'View post details' : selectedReel ? 'Watch reel' : 'View content'}
-            </DialogDescription>
-          </VisuallyHidden>
-          
-          {/* Navigation buttons */}
-          {!loadingModal && (
-            <>
-              {currentExploreIndex > 0 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    goToPrevExploreItem();
-                  }}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 z-50 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-              )}
-              {currentExploreIndex < visibleExploreFeed.length - 1 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    goToNextExploreItem();
-                  }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 z-50 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-                >
-                  <ChevronRight className="w-6 h-6" />
-                </button>
-              )}
-            </>
-          )}
+      {/* Full-screen scrollable feed view */}
+      <AnimatePresence>
+        {showFeedView && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'tween', duration: 0.25 }}
+            className={`fixed inset-0 z-[60] flex flex-col ${feedType === 'reel' ? 'bg-black' : 'bg-background'}`}
+          >
+            {/* Header - regular for posts, floating for reels */}
+            {feedType === 'reel' ? (
+              <button
+                onClick={() => {
+                  setShowFeedView(false);
+                  setFeedItems([]);
+                }}
+                className="absolute top-3 left-3 z-[70] p-2 rounded-full bg-black/50"
+              >
+                <ArrowLeft className="w-5 h-5 text-white" />
+              </button>
+            ) : (
+              <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b border-border">
+                <div className="flex items-center h-12 px-3">
+                  <button
+                    onClick={() => {
+                      setShowFeedView(false);
+                      setFeedItems([]);
+                    }}
+                    className="p-2 -ml-1 rounded-full hover:bg-secondary transition-colors"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <h1 className="font-semibold text-base ml-2">Explore</h1>
+                </div>
+              </header>
+            )}
 
-          {loadingModal ? (
-            <div className="flex items-center justify-center h-96">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            </div>
-          ) : selectedPost ? (
-            <div className="overflow-y-auto max-h-[90vh] bg-background">
-              <PostCard post={selectedPost} />
-            </div>
-          ) : selectedReel ? (
-            <div className="h-full w-full">
-              <ReelItem reel={selectedReel} isActive={true} />
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+            {/* Scrollable feed */}
+            {feedLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className={`w-10 h-10 animate-spin ${feedType === 'reel' ? 'text-white' : 'text-primary'}`} />
+              </div>
+            ) : feedType === 'reel' ? (
+              /* Full-screen snap scroll for reels */
+              <div
+                ref={reelContainerRef}
+                className="w-full h-full overflow-y-auto bg-black scrollbar-hide"
+                style={{ scrollSnapType: 'y mandatory', overscrollBehavior: 'contain' }}
+              >
+                {feedItems.map((item: any, index: number) => (
+                  <div
+                    key={item.id}
+                    id={`feed-item-${item.id}`}
+                    style={{ height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always' }}
+                  >
+                    <ReelItem reel={item} isActive={currentReelIndex === index} shouldPreload={Math.abs(index - currentReelIndex) <= 1} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* Regular scrollable feed for posts */
+              <div
+                ref={feedScrollRef}
+                className="flex-1 overflow-y-auto pb-16"
+              >
+                {feedItems.map((item: any) => (
+                  <div key={item.id} id={`feed-item-${item.id}`}>
+                    <PostCard post={item} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

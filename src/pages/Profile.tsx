@@ -251,7 +251,7 @@ const Profile: React.FC = () => {
     <div className="h-full flex flex-col bg-background overflow-y-auto overflow-x-hidden">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
-        <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
+        <div className="flex items-center justify-between h-14 px-4">
           <h1 className="font-display font-semibold text-lg">
             {userProfile.username}
           </h1>
@@ -280,7 +280,7 @@ const Profile: React.FC = () => {
       />
 
       {/* Tabs - Instagram style */}
-      <Tabs defaultValue="posts" className="max-w-lg mx-auto w-full mt-[14px]">
+      <Tabs defaultValue="posts" className="w-full mt-[14px]">
         <TabsList className="w-full bg-transparent border-t border-border rounded-none h-11 p-0 mb-1.5">
           <TabsTrigger 
             value="posts" 

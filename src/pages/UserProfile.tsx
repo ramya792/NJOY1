@@ -391,9 +391,9 @@ const UserProfile: React.FC = () => {
       </header>
 
       {/* Profile Info */}
-      <div className="max-w-lg mx-auto px-4 py-4">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary flex-shrink-0 relative">
+      <div className="max-w-lg mx-auto px-4 pt-4 pb-2">
+        <div className="flex items-center gap-6 mb-3">
+          <div className="w-[86px] h-[86px] rounded-full overflow-hidden bg-secondary flex-shrink-0 relative ring-[3px] ring-border">
             {profile.photoURL ? (
               <img src={profile.photoURL} alt={profile.username} className="w-full h-full object-cover" />
             ) : (
@@ -407,39 +407,39 @@ const UserProfile: React.FC = () => {
           </div>
 
           <div className="flex-1">
-            <div className="flex items-center justify-around">
-              <div className="text-center">
-                <p className="font-semibold text-sm leading-tight">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
-                <p className="text-xs text-muted-foreground leading-tight mt-0.5">posts</p>
+            <div className="flex items-center justify-evenly">
+              <div className="text-center min-w-[56px]">
+                <p className="font-bold text-[17px] leading-tight">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
+                <p className="text-[13px] text-muted-foreground leading-tight mt-0.5">posts</p>
               </div>
               <div 
-                className={`text-center ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
+                className={`text-center min-w-[56px] ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
                 onClick={() => canViewContent && setShowFollowers(true)}
               >
-                <p className="font-semibold text-sm leading-tight">{canViewContent ? uniqueFollowers.length : '—'}</p>
-                <p className="text-xs text-muted-foreground leading-tight mt-0.5">followers</p>
+                <p className="font-bold text-[17px] leading-tight">{canViewContent ? uniqueFollowers.length : '—'}</p>
+                <p className="text-[13px] text-muted-foreground leading-tight mt-0.5">followers</p>
               </div>
               <div 
-                className={`text-center ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
+                className={`text-center min-w-[56px] ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
                 onClick={() => canViewContent && setShowFollowing(true)}
               >
-                <p className="font-semibold text-sm leading-tight">{canViewContent ? uniqueFollowing.length : '—'}</p>
-                <p className="text-xs text-muted-foreground leading-tight mt-0.5">following</p>
+                <p className="font-bold text-[17px] leading-tight">{canViewContent ? uniqueFollowing.length : '—'}</p>
+                <p className="text-[13px] text-muted-foreground leading-tight mt-0.5">following</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mb-4">
+        <div className="mt-1 mb-3">
           <div className="flex items-center gap-2">
-            <p className="font-semibold text-sm">{profile.displayName || profile.username}</p>
+            <p className="font-semibold text-[15px]">{profile.displayName || profile.username}</p>
             {profile.isPrivate && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
           </div>
-          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap mt-1 text-muted-foreground">{profile.bio}</p>}
+          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap mt-1 text-muted-foreground leading-[18px]">{profile.bio}</p>}
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-2 mb-3">
           <Button
             onClick={handleFollowAction}
             disabled={actionLoading || followStatus === 'requested'}

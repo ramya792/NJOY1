@@ -25,14 +25,16 @@ interface Reel {
 interface ReelItemProps {
   reel: Reel;
   isActive: boolean;
+  inFeed?: boolean;
+  shouldPreload?: boolean;
 }
 
-const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
+const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive, inFeed = false, shouldPreload = false }) => {
   const { userProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(reel.likes?.includes(userProfile?.uid || ''));
   const [saved, setSaved] = useState(reel.saves?.includes(userProfile?.uid || ''));
@@ -41,19 +43,79 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
   const [showHeart, setShowHeart] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(true);
+  const [videoError, setVideoError] = useState(false);
 
+  // Robust play/pause based on isActive
   useEffect(() => {
-    if (videoRef.current) {
-      if (isActive) {
-        videoRef.current.play().catch(() => {});
-        setPlaying(true);
+    const video = videoRef.current;
+    if (!video) return;
+    let cancelled = false;
+
+    if (isActive) {
+      setVideoLoading(true);
+      setVideoError(false);
+
+      const tryPlay = () => {
+        if (cancelled) return;
+        video.play().then(() => {
+          if (!cancelled) {
+            setPlaying(true);
+            setVideoLoading(false);
+          }
+        }).catch(() => {
+          if (!cancelled) setPlaying(false);
+        });
+      };
+
+      // If video already has enough data, play immediately
+      if (video.readyState >= 2) {
+        tryPlay();
       } else {
-        videoRef.current.pause();
-        videoRef.current.currentTime = 0;
-        setPlaying(false);
-        setShowComments(false);
+        // Force load and use multiple event listeners + polling fallback
+        video.load();
+
+        const onReady = () => {
+          tryPlay();
+          cleanup();
+        };
+
+        video.addEventListener('canplay', onReady);
+        video.addEventListener('loadeddata', onReady);
+
+        // Polling fallback — checks every 300ms in case events were missed
+        const pollInterval = setInterval(() => {
+          if (cancelled) { clearInterval(pollInterval); return; }
+          if (video.readyState >= 2) {
+            tryPlay();
+            clearInterval(pollInterval);
+          }
+        }, 300);
+
+        // Timeout fallback — force play attempt after 3s regardless
+        const forceTimeout = setTimeout(() => {
+          if (!cancelled && !playing) {
+            tryPlay();
+          }
+        }, 3000);
+
+        const cleanup = () => {
+          video.removeEventListener('canplay', onReady);
+          video.removeEventListener('loadeddata', onReady);
+          clearInterval(pollInterval);
+          clearTimeout(forceTimeout);
+        };
+
+        return () => { cancelled = true; cleanup(); };
       }
+    } else {
+      video.pause();
+      video.currentTime = 0;
+      setPlaying(false);
+      setShowComments(false);
     }
+
+    return () => { cancelled = true; };
   }, [isActive]);
 
   const togglePlay = () => {
@@ -158,7 +220,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
   };
 
   return (
-    <div className="reel-item relative bg-black">
+    <div className={inFeed ? 'relative bg-black w-full h-full' : 'reel-item relative bg-black'}>
       <video
         ref={videoRef}
         src={reel.videoUrl}
@@ -166,10 +228,46 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
         loop
         muted={muted}
         playsInline
-        preload={isActive ? 'auto' : 'metadata'}
+        preload={isActive ? 'auto' : shouldPreload ? 'auto' : 'metadata'}
         onClick={togglePlay}
         onDoubleClick={handleDoubleTap}
+        onLoadedData={() => setVideoLoading(false)}
+        onWaiting={() => { if (isActive) setVideoLoading(true); }}
+        onPlaying={() => { setVideoLoading(false); setVideoError(false); setPlaying(true); }}
+        onError={(e) => {
+          if (isActive && videoRef.current?.src) {
+            setVideoLoading(false);
+            setVideoError(true);
+          }
+        }}
       />
+
+      {/* Video loading spinner */}
+      {videoLoading && isActive && !videoError && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+          <Loader2 className="w-10 h-10 text-white animate-spin" />
+        </div>
+      )}
+
+      {/* Video error - retry button */}
+      {videoError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-[5]">
+          <p className="text-white/70 text-sm mb-3">Video failed to load</p>
+          <button
+            onClick={() => {
+              setVideoError(false);
+              setVideoLoading(true);
+              if (videoRef.current) {
+                videoRef.current.load();
+                videoRef.current.play().catch(() => {});
+              }
+            }}
+            className="px-4 py-2 bg-white/20 rounded-full text-white text-sm"
+          >
+            Tap to retry
+          </button>
+        </div>
+      )}
 
       {/* Play/Pause indicator */}
       <AnimatePresence>
@@ -205,15 +303,15 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
       <div className="absolute bottom-0 left-0 right-0 h-60 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none z-[5]" />
 
       {/* Right side actions */}
-      <div className="absolute right-3 bottom-32 pb-safe flex flex-col items-center gap-4 z-10">
+      <div className={`absolute right-3 ${inFeed ? 'bottom-4' : 'bottom-[64px]'} flex flex-col items-center gap-4 z-10`}>
         <motion.button whileTap={{ scale: 0.8 }} onClick={handleLike} className="flex flex-col items-center gap-1">
           <Heart className={`w-7 h-7 ${liked ? 'text-red-500 fill-red-500' : 'text-white'}`} />
-          <span className="text-white text-xs font-medium">{likesCount}</span>
+          <span className="text-white text-xs font-medium drop-shadow-lg">{likesCount}</span>
         </motion.button>
 
         <motion.button whileTap={{ scale: 0.8 }} onClick={() => setShowComments(true)} className="flex flex-col items-center gap-1">
           <MessageCircle className="w-7 h-7 text-white" />
-          <span className="text-white text-xs font-medium">{commentsCount}</span>
+          <span className="text-white text-xs font-medium drop-shadow-lg">{commentsCount}</span>
         </motion.button>
 
         <motion.button whileTap={{ scale: 0.8 }} onClick={handleShare} className="flex flex-col items-center gap-1">
@@ -241,7 +339,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive }) => {
       </div>
 
       {/* Bottom info - order: username → caption → hashtags */}
-      <div className="absolute left-3 right-16 bottom-24 pb-safe z-10">
+      <div className={`absolute left-3 right-16 ${inFeed ? 'bottom-4' : 'bottom-[64px]'} z-10 max-w-[calc(100%-5rem)]`}>
         <button onClick={() => navigate(`/user/${reel.userId}`)} className="font-semibold text-white text-sm block mb-1 drop-shadow-lg">
           @{reel.username}
         </button>
