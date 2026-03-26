@@ -33,9 +33,13 @@ export const uploadToCloudinary = async (
     xhr.addEventListener('load', () => {
       if (xhr.status === 200) {
         const response = JSON.parse(xhr.responseText);
-        resolve(response);
+        if (response.secure_url) {
+          resolve(response);
+        } else {
+          reject(new Error('Upload failed: No secure URL in response'));
+        }
       } else {
-        reject(new Error('Upload failed'));
+        reject(new Error(`Upload failed with status ${xhr.status}`));
       }
     });
     

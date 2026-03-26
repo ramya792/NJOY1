@@ -65,6 +65,13 @@ const Reels: React.FC = () => {
   const privateUserCacheRef = useRef<Map<string, boolean>>(new Map());
   const hasScrolledToTargetRef = useRef(false);
 
+  const getSnapItemHeight = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return 0;
+    const firstItem = container.firstElementChild as HTMLElement | null;
+    return firstItem?.clientHeight || container.clientHeight;
+  }, []);
+
   useEffect(() => {
     if (!userProfile) return;
 
@@ -81,8 +88,21 @@ const Reels: React.FC = () => {
         createdAt: d.data().createdAt?.toDate() || new Date(),
       })) as Reel[];
 
+      // Only keep reels with valid videoUrl
+      const validReels = fetchedReels.filter(reel => 
+        reel.videoUrl && typeof reel.videoUrl === 'string' && reel.videoUrl.trim().length > 0
+      );
+
+      // Log filtered reels for debugging
+      const invalidReels = fetchedReels.filter(reel => 
+        !reel.videoUrl || typeof reel.videoUrl !== 'string' || reel.videoUrl.trim().length === 0
+      );
+      if (invalidReels.length > 0) {
+        console.warn('Filtered out reels without valid videoUrl:', invalidReels);
+      }
+
       // Check privacy status
-      const uniqueUserIds = [...new Set(fetchedReels.map(r => r.userId))];
+      const uniqueUserIds = [...new Set(validReels.map(r => r.userId))];
       const unknownUserIds = uniqueUserIds.filter(id =>
         id !== userProfile.uid && !privateUserCacheRef.current.has(id)
       );
@@ -107,13 +127,13 @@ const Reels: React.FC = () => {
       });
       setPrivateUsers(privates);
       
-      setReels(fetchedReels);
+      setReels(validReels);
       
       // Cache reels for instant restore (background)
       requestIdleCallback(() => {
         try {
           sessionStorage.setItem('njoy_reels_cache', JSON.stringify(
-            fetchedReels.slice(0, 30).map(r => ({ ...r, createdAt: r.createdAt.toISOString() }))
+            validReels.slice(0, 30).map(r => ({ ...r, createdAt: r.createdAt.toISOString() }))
           ));
         } catch (e) {
           console.error('Reels cache save error:', e);
@@ -143,12 +163,12 @@ const Reels: React.FC = () => {
       // Scroll to position after a tick to let the DOM render
       setTimeout(() => {
         if (containerRef.current) {
-          const height = containerRef.current.clientHeight;
-          containerRef.current.scrollTo({ top: targetIndex * height, behavior: 'auto' });
+          const itemHeight = getSnapItemHeight();
+          containerRef.current.scrollTo({ top: targetIndex * itemHeight, behavior: 'auto' });
         }
       }, 50);
     }
-  }, [targetReelId, visibleReels]);
+  }, [targetReelId, visibleReels, getSnapItemHeight]);
 
   const scrollToIndex = useCallback((index: number) => {
     if (!containerRef.current || isAnimatingRef.current) return;
@@ -156,10 +176,10 @@ const Reels: React.FC = () => {
     if (clampedIndex === currentIndex && index !== 0) return;
     
     isAnimatingRef.current = true;
-    const height = containerRef.current.clientHeight;
+    const itemHeight = getSnapItemHeight();
     
     containerRef.current.scrollTo({
-      top: clampedIndex * height,
+      top: clampedIndex * itemHeight,
       behavior: 'smooth',
     });
 
@@ -169,7 +189,7 @@ const Reels: React.FC = () => {
     setTimeout(() => {
       isAnimatingRef.current = false;
     }, 600);
-  }, [currentIndex, visibleReels.length]);
+  }, [currentIndex, visibleReels.length, getSnapItemHeight]);
 
   // Handle wheel events (desktop) — one scroll = one reel
   useEffect(() => {
@@ -200,9 +220,9 @@ const Reels: React.FC = () => {
     const handleScroll = () => {
       clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
-        const height = container.clientHeight;
-        if (height === 0) return;
-        const newIndex = Math.round(container.scrollTop / height);
+        const itemHeight = getSnapItemHeight();
+        if (itemHeight === 0) return;
+        const newIndex = Math.round(container.scrollTop / itemHeight);
         const clamped = Math.max(0, Math.min(newIndex, visibleReels.length - 1));
         if (clamped !== currentIndex) {
           setCurrentIndex(clamped);
@@ -216,7 +236,7 @@ const Reels: React.FC = () => {
       container.removeEventListener('scroll', handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [currentIndex, visibleReels.length]);
+  }, [currentIndex, visibleReels.length, getSnapItemHeight]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -265,14 +285,19 @@ const Reels: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className="reel-container scrollbar-hide"
+      className="reel-container scrollbar-hide px-2 sm:px-0"
       style={{ touchAction: 'pan-y', scrollSnapType: 'y mandatory', overscrollBehavior: 'contain' }}
     >
       {visibleReels.map((reel, index) => (
-        <div key={reel.id} style={{ scrollSnapAlign: 'start', scrollSnapStop: 'always' }}>
+        <div
+          key={reel.id}
+          className="w-full max-w-lg mx-auto h-full"
+          style={{ scrollSnapAlign: 'start', scrollSnapStop: 'always' }}
+        >
           <ReelItem
             reel={reel}
             isActive={index === currentIndex}
+            inFeed
             shouldPreload={Math.abs(index - currentIndex) <= 1}
           />
         </div>

@@ -75,6 +75,11 @@ const CreatePost: React.FC = () => {
         setUploadProgress(progress);
       });
 
+      // Validate upload result
+      if (!result.secure_url || !result.secure_url.trim()) {
+        throw new Error('Upload failed: No secure URL returned');
+      }
+
       const collectionName = postType === 'reel' ? 'reels' : 'posts';
 
       // Create post/reel document

@@ -35,7 +35,7 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive, inFeed = false
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
   const [liked, setLiked] = useState(reel.likes?.includes(userProfile?.uid || ''));
   const [saved, setSaved] = useState(reel.saves?.includes(userProfile?.uid || ''));
   const [likesCount, setLikesCount] = useState(reel.likes?.length || 0);
@@ -64,7 +64,11 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive, inFeed = false
             setVideoLoading(false);
           }
         }).catch(() => {
-          if (!cancelled) setPlaying(false);
+          if (!cancelled) {
+            // Autoplay can be blocked by browser policy; keep UI usable.
+            setPlaying(false);
+            setVideoLoading(false);
+          }
         });
       };
 
@@ -221,36 +225,43 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive, inFeed = false
 
   return (
     <div className={inFeed ? 'relative bg-black w-full h-full' : 'reel-item relative bg-black'}>
-      <video
-        ref={videoRef}
-        src={reel.videoUrl}
-        className="w-full h-full object-contain"
-        loop
-        muted={muted}
-        playsInline
-        preload={isActive ? 'auto' : shouldPreload ? 'auto' : 'metadata'}
-        onClick={togglePlay}
-        onDoubleClick={handleDoubleTap}
-        onLoadedData={() => setVideoLoading(false)}
-        onWaiting={() => { if (isActive) setVideoLoading(true); }}
-        onPlaying={() => { setVideoLoading(false); setVideoError(false); setPlaying(true); }}
-        onError={(e) => {
-          if (isActive && videoRef.current?.src) {
-            setVideoLoading(false);
-            setVideoError(true);
-          }
-        }}
-      />
+      {reel.videoUrl ? (
+        <video
+          ref={videoRef}
+          src={reel.videoUrl}
+          className="w-full h-full object-cover"
+          loop
+          muted={muted}
+          playsInline
+          preload={isActive ? 'auto' : shouldPreload ? 'auto' : 'metadata'}
+          onClick={togglePlay}
+          onDoubleClick={handleDoubleTap}
+          onCanPlay={() => setVideoLoading(false)}
+          onLoadedData={() => setVideoLoading(false)}
+          onWaiting={() => { if (isActive) setVideoLoading(true); }}
+          onPlaying={() => { setVideoLoading(false); setVideoError(false); setPlaying(true); }}
+          onError={(e) => {
+            if (isActive && videoRef.current?.src) {
+              setVideoLoading(false);
+              setVideoError(true);
+            }
+          }}
+        />
+      ) : (
+        <div className="w-full h-full bg-black flex items-center justify-center">
+          <p className="text-white/50 text-center px-4">Video not available</p>
+        </div>
+      )}
 
       {/* Video loading spinner */}
-      {videoLoading && isActive && !videoError && (
+      {videoLoading && isActive && !videoError && reel.videoUrl && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
           <Loader2 className="w-10 h-10 text-white animate-spin" />
         </div>
       )}
 
       {/* Video error - retry button */}
-      {videoError && (
+      {videoError && reel.videoUrl && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-[5]">
           <p className="text-white/70 text-sm mb-3">Video failed to load</p>
           <button

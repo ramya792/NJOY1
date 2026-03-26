@@ -275,6 +275,8 @@ const Profile: React.FC = () => {
       {/* Profile Info */}
       <ProfileHeader 
         profile={userProfile} 
+        postsCount={posts.length}
+        reelsCount={reels.length}
         onEditClick={() => setShowEditModal(true)}
         onShareClick={() => setShowShareDialog(true)}
       />

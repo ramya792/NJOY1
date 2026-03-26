@@ -24,6 +24,8 @@ interface ProfileHeaderProps {
   onShareClick?: () => void;
   isOwnProfile?: boolean;
   onProfileUpdate?: () => void;
+  postsCount?: number;
+  reelsCount?: number;
 }
 
 const ProfileHeader: React.FC<ProfileHeaderProps> = ({ 
@@ -31,7 +33,9 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   onEditClick,
   onShareClick,
   isOwnProfile = true,
-  onProfileUpdate
+  onProfileUpdate,
+  postsCount,
+  reelsCount
 }) => {
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
@@ -93,7 +97,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
           {/* Stats row */}
           <div className="flex-1 flex items-center justify-evenly">
             <div className="text-center min-w-[56px]">
-              <p className="font-bold text-[17px] leading-tight">{localProfile.postsCount || 0}</p>
+              <p className="font-bold text-[17px] leading-tight">{(postsCount || 0) + (reelsCount || 0)}</p>
               <p className="text-[13px] text-muted-foreground mt-0.5">posts</p>
             </div>
             <button 
