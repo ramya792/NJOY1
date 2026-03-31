@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, PhoneOff, Video, X } from 'lucide-react';
 import { CallData, CallService } from '@/lib/callService';
 import { Button } from '@/components/ui/button';
+import { turnConfig } from '@/lib/callService';
 
 interface IncomingCallProps {
   call: CallData | null;

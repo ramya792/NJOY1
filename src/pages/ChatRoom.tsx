@@ -52,9 +52,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
-import { CallService } from '@/lib/callService';
+import EmojiPicker, { EmojiClickData, Theme, Emoji } from 'emoji-picker-react';
+import { CallService, turnConfig } from '@/lib/callService';
 import ChatWallpaperPicker, { getChatWallpaper, getWallpaperStyle, WallpaperConfig } from '@/components/chat/ChatWallpaper';
+import OutgoingCall from "@/components/calls/OutgoingCall";
+import CallHistoryMessage from "@/components/messages/CallHistoryMessage";
 
 interface MentionedUser {
   uid: string;
@@ -75,6 +77,16 @@ interface Message {
   editedAt?: Date;
   isEdited?: boolean;
   mentions?: MentionedUser[];
+  type?: 'call';
+  callInfo?: {
+    callerId: string;
+    callerName: string;
+    callerPhoto: string;
+    receiverId: string;
+    receiverName: string;
+    receiverPhoto: string;
+    type: 'audio' | 'video';
+  };
 }
 
 interface Participant {
@@ -125,6 +137,9 @@ const ChatRoom: React.FC = () => {
   const [showCallDialog, setShowCallDialog] = useState(false);
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
   const [inCall, setInCall] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -1131,72 +1146,86 @@ const ChatRoom: React.FC = () => {
     }
   };
 
-  const handleStartCall = async (type: 'audio' | 'video') => {
+  const startCall = async (type: 'audio' | 'video') => {
     if (!userProfile || !participant) return;
-    
-    try {
-      setCallType(type);
-      setShowCallDialog(true);
-      setInCall(true);
-      
-      // Initiate call in database
-      const callId = await CallService.initiateCall({
-        callerId: userProfile.uid,
-        callerName: userProfile.username,
-        callerPhoto: userProfile.photoURL || '',
-        receiverId: participant.uid,
-        receiverName: participant.username,
-        receiverPhoto: participant.photoURL || '',
-        type,
-      });
-      
-      // Listen for call status
-      const callDoc = doc(db, 'calls', callId);
-      const unsubscribe = onSnapshot(callDoc, (docSnap) => {
-        if (docSnap.exists()) {
-          const status = docSnap.data().status;
-          if (status === 'rejected') {
-            handleEndCall();
-            toast({
-              title: 'Call declined',
-              description: `${participant.username} declined the call.`,
-              variant: 'destructive',
-            });
-          } else if (status === 'accepted') {
-            toast({
-              title: 'Call connected',
-              description: `Connected with ${participant.username}`,
-            });
-          }
+
+    setCallType(type);
+    setShowCallDialog(false);
+    setInCall(true);
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: type === 'video',
+      audio: true,
+    });
+    setLocalStream(stream);
+
+    const pc = new RTCPeerConnection(turnConfig);
+    peerConnectionRef.current = pc;
+
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    pc.ontrack = event => {
+      setRemoteStream(event.streams[0]);
+    };
+
+    const callId = await CallService.initiateCall({
+      callerId: userProfile.uid,
+      callerName: userProfile.username,
+      callerPhoto: userProfile.photoURL,
+      receiverId: participant.uid,
+      receiverName: participant.username,
+      receiverPhoto: participant.photoURL,
+      type,
+    });
+
+    const callDocRef = doc(db, 'calls', callId);
+    const offerCandidatesRef = collection(callDocRef, 'offerCandidates');
+    const answerCandidatesRef = collection(callDocRef, 'answerCandidates');
+
+    pc.onicecandidate = event => {
+      if (event.candidate) {
+        addDoc(offerCandidatesRef, event.candidate.toJSON());
+      }
+    };
+
+    const offerDescription = await pc.createOffer();
+    await pc.setLocalDescription(offerDescription);
+
+    const offer = {
+      sdp: offerDescription.sdp,
+      type: offerDescription.type,
+    };
+
+    await updateDoc(callDocRef, { offer });
+
+    onSnapshot(callDocRef, (snapshot) => {
+      const data = snapshot.data();
+      if (!pc.currentRemoteDescription && data?.answer) {
+        const answerDescription = new RTCSessionDescription(data.answer);
+        pc.setRemoteDescription(answerDescription);
+      }
+    });
+
+    onSnapshot(answerCandidatesRef, snapshot => {
+      snapshot.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const candidate = new RTCIceCandidate(change.doc.data());
+          pc.addIceCandidate(candidate);
         }
       });
-      
-      // Auto end after 60 seconds if not answered
-      setTimeout(() => {
-        if (inCall) {
-          CallService.markAsMissed(callId);
-          handleEndCall();
-        }
-        unsubscribe();
-      }, 60000);
-      
-    } catch (error) {
-      console.error('Error starting call:', error);
-      toast({
-        title: 'Call failed',
-        description: 'Could not initiate call. Please try again.',
-        variant: 'destructive',
-      });
-    }
+    });
   };
 
-  const handleEndCall = () => {
+  const endCall = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+    }
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
     setInCall(false);
-    setShowCallDialog(false);
-    toast({
-      title: 'Call ended',
-      description: `${callType === 'audio' ? 'Voice' : 'Video'} call with ${participant?.username} ended.`,
-    });
+    setLocalStream(null);
+    setRemoteStream(null);
   };
 
   const formatRecordingTime = (seconds: number) => {
@@ -1327,6 +1356,9 @@ const ChatRoom: React.FC = () => {
   };
 
   const renderMessage = (message: Message) => {
+    if (message.type === 'call' && userProfile) {
+      return <CallHistoryMessage message={message.callInfo} currentUserId={userProfile.uid} />;
+    }
     if (message.mediaUrl) {
       if (message.mediaType === 'image') {
         return (
@@ -1429,7 +1461,7 @@ const ChatRoom: React.FC = () => {
       }
     }
     return (
-      <p className="text-sm emoji-text" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+      <p className="text-sm" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
         {renderTextWithLinks(message.text)}
       </p>
     );
@@ -1441,6 +1473,10 @@ const ChatRoom: React.FC = () => {
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (inCall && participant && !remoteStream) {
+    return <OutgoingCall participant={participant} onEndCall={endCall} callType={callType} />;
   }
 
   return (
@@ -1537,13 +1573,13 @@ const ChatRoom: React.FC = () => {
             {!isAIChat && !groupInfo && (
               <>
                 <button 
-                  onClick={() => handleStartCall('audio')}
+                  onClick={() => startCall('audio')}
                   className="p-2 hover:bg-secondary rounded-full transition-colors"
                 >
                   <Phone className="w-5 h-5" />
                 </button>
                 <button 
-                  onClick={() => handleStartCall('video')}
+                  onClick={() => startCall('video')}
                   className="p-2 hover:bg-secondary rounded-full transition-colors"
                 >
                   <Video className="w-5 h-5" />
@@ -2082,7 +2118,7 @@ const ChatRoom: React.FC = () => {
                 variant="destructive"
                 size="lg"
                 className="rounded-full w-14 h-14"
-                onClick={handleEndCall}
+                onClick={endCall}
               >
                 <PhoneOff className="w-6 h-6" />
               </Button>

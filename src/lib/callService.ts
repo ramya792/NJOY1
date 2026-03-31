@@ -1,6 +1,17 @@
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, onSnapshot, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 
+// TURN server configuration
+export const turnConfig = {
+  iceServers: [
+    {
+      urls: 'turn:njoy.metered.live:80',
+      username: '1d1cf6d656abe862914634c0',
+      credential: 'gOM1pY7Qacmr7OF/',
+    },
+  ],
+};
+
 export interface CallData {
   id?: string;
   callerId: string;
