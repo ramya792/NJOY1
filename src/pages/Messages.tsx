@@ -375,12 +375,13 @@ const Messages: React.FC = () => {
       {/* Messages List */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto max-w-lg mx-auto w-full"
+        className="flex-1 overflow-y-auto w-full"
         style={{ 
           WebkitOverflowScrolling: 'touch',
           willChange: 'scroll-position'
         }}
       >
+        <div className="max-w-lg mx-auto w-full">
         {/* Group Chat & AI Options */}
         {!showSearch && (
           <div className="border-b border-border">
@@ -487,6 +488,7 @@ const Messages: React.FC = () => {
             ))}
           </div>
         ) : null}
+        </div>
       </div>
 
       {/* New Message Dialog */}

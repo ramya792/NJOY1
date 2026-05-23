@@ -986,18 +986,22 @@ const SearchTabs: React.FC = () => {
           >
             {/* Header - regular for posts, floating for reels */}
             {feedType === 'reel' ? (
-              <button
-                onClick={() => {
-                  setShowFeedView(false);
-                  setFeedItems([]);
-                }}
-                className="absolute top-3 left-3 z-[70] p-2 rounded-full bg-black/50"
-              >
-                <ArrowLeft className="w-5 h-5 text-white" />
-              </button>
+              <div className="absolute top-0 left-0 right-0 z-[70] flex justify-center pointer-events-none">
+                <div className="w-full max-w-lg relative pointer-events-auto">
+                  <button
+                    onClick={() => {
+                      setShowFeedView(false);
+                      setFeedItems([]);
+                    }}
+                    className="absolute top-3 left-3 p-2 rounded-full bg-black/50"
+                  >
+                    <ArrowLeft className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
             ) : (
               <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b border-border">
-                <div className="flex items-center h-12 px-3">
+                <div className="flex items-center h-12 px-3 max-w-lg mx-auto w-full">
                   <button
                     onClick={() => {
                       setShowFeedView(false);
@@ -1024,27 +1028,31 @@ const SearchTabs: React.FC = () => {
                 className="w-full h-full overflow-y-auto bg-black scrollbar-hide"
                 style={{ scrollSnapType: 'y mandatory', overscrollBehavior: 'contain' }}
               >
-                {feedItems.map((item: any, index: number) => (
-                  <div
-                    key={item.id}
-                    id={`feed-item-${item.id}`}
-                    style={{ height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always' }}
-                  >
-                    <ReelItem reel={item} isActive={currentReelIndex === index} shouldPreload={Math.abs(index - currentReelIndex) <= 1} />
-                  </div>
-                ))}
+                <div className="max-w-lg mx-auto w-full">
+                  {feedItems.map((item: any, index: number) => (
+                    <div
+                      key={item.id}
+                      id={`feed-item-${item.id}`}
+                      style={{ height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always' }}
+                    >
+                      <ReelItem reel={item} isActive={currentReelIndex === index} inFeed shouldPreload={Math.abs(index - currentReelIndex) <= 1} />
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               /* Regular scrollable feed for posts */
               <div
                 ref={feedScrollRef}
-                className="flex-1 overflow-y-auto pb-16"
+                className="flex-1 overflow-y-auto pb-16 w-full"
               >
-                {feedItems.map((item: any) => (
-                  <div key={item.id} id={`feed-item-${item.id}`}>
-                    <PostCard post={item} />
-                  </div>
-                ))}
+                <div className="max-w-lg mx-auto w-full">
+                  {feedItems.map((item: any) => (
+                    <div key={item.id} id={`feed-item-${item.id}`}>
+                      <PostCard post={item} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </motion.div>

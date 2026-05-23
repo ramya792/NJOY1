@@ -297,7 +297,6 @@ const Reels: React.FC = () => {
           <ReelItem
             reel={reel}
             isActive={index === currentIndex}
-            inFeed
             shouldPreload={Math.abs(index - currentIndex) <= 1}
           />
         </div>

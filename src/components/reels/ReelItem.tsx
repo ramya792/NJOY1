@@ -226,27 +226,31 @@ const ReelItem: React.FC<ReelItemProps> = memo(({ reel, isActive, inFeed = false
   return (
     <div className={inFeed ? 'relative bg-black w-full h-full' : 'reel-item relative bg-black'}>
       {reel.videoUrl ? (
-        <video
-          ref={videoRef}
-          src={reel.videoUrl}
-          className="w-full h-full object-cover"
-          loop
-          muted={muted}
-          playsInline
-          preload={isActive ? 'auto' : shouldPreload ? 'auto' : 'metadata'}
-          onClick={togglePlay}
-          onDoubleClick={handleDoubleTap}
-          onCanPlay={() => setVideoLoading(false)}
-          onLoadedData={() => setVideoLoading(false)}
-          onWaiting={() => { if (isActive) setVideoLoading(true); }}
-          onPlaying={() => { setVideoLoading(false); setVideoError(false); setPlaying(true); }}
-          onError={(e) => {
-            if (isActive && videoRef.current?.src) {
-              setVideoLoading(false);
-              setVideoError(true);
-            }
-          }}
-        />
+        shouldPreload || isActive ? (
+          <video
+            ref={videoRef}
+            src={reel.videoUrl}
+            className="w-full h-full object-cover"
+            loop
+            muted={muted}
+            playsInline
+            preload={isActive ? 'auto' : 'metadata'}
+            onClick={togglePlay}
+            onDoubleClick={handleDoubleTap}
+            onCanPlay={() => setVideoLoading(false)}
+            onLoadedData={() => setVideoLoading(false)}
+            onWaiting={() => { if (isActive) setVideoLoading(true); }}
+            onPlaying={() => { setVideoLoading(false); setVideoError(false); setPlaying(true); }}
+            onError={(e) => {
+              if (isActive && videoRef.current?.src) {
+                setVideoLoading(false);
+                setVideoError(true);
+              }
+            }}
+          />
+        ) : (
+          <div className="w-full h-full bg-black" />
+        )
       ) : (
         <div className="w-full h-full bg-black flex items-center justify-center">
           <p className="text-white/50 text-center px-4">Video not available</p>

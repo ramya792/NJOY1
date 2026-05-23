@@ -1669,8 +1669,9 @@ const ChatRoom: React.FC = () => {
           ...getWallpaperStyle(wallpaper) 
         }}
       >
+        <div className="max-w-lg mx-auto w-full">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
+          <div className="flex flex-col items-center justify-center h-full text-center py-20">
             <div className="w-20 h-20 rounded-full overflow-hidden bg-secondary mb-4">
               {participant?.photoURL ? (
                 <img
@@ -1759,6 +1760,7 @@ const ChatRoom: React.FC = () => {
         )}
         
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Edit message banner */}

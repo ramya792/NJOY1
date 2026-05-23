@@ -251,7 +251,7 @@ const Profile: React.FC = () => {
     <div className="h-full flex flex-col bg-background overflow-y-auto overflow-x-hidden">
       {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-border">
-        <div className="flex items-center justify-between h-14 px-4">
+        <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
           <h1 className="font-display font-semibold text-lg">
             {userProfile.username}
           </h1>
@@ -273,13 +273,14 @@ const Profile: React.FC = () => {
       </header>
 
       {/* Profile Info */}
-      <ProfileHeader 
-        profile={userProfile} 
-        postsCount={posts.length}
-        reelsCount={reels.length}
-        onEditClick={() => setShowEditModal(true)}
-        onShareClick={() => setShowShareDialog(true)}
-      />
+      <div className="max-w-lg mx-auto w-full">
+        <ProfileHeader 
+          profile={userProfile} 
+          postsCount={posts.length}
+          reelsCount={reels.length}
+          onEditClick={() => setShowEditModal(true)}
+          onShareClick={() => setShowShareDialog(true)}
+        />
 
       {/* Tabs - Instagram style */}
       <Tabs defaultValue="posts" className="w-full mt-[14px]">
@@ -359,7 +360,8 @@ const Profile: React.FC = () => {
             </div>
           )}
         </TabsContent>
-      </Tabs>
+        </Tabs>
+      </div>
 
       {/* Edit Profile Modal */}
       {showEditModal && (
