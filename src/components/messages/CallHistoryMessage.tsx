@@ -3,8 +3,9 @@ import { Phone, Video, PhoneMissed } from 'lucide-react';
 
 interface CallHistoryMessageProps {
   message: {
-    callType: 'audio' | 'video';
-    status: 'ended' | 'missed' | 'declined';
+    callType?: 'audio' | 'video';
+    type?: 'audio' | 'video';
+    status?: 'ended' | 'missed' | 'declined';
     duration?: number;
     callerId: string;
   };
@@ -13,6 +14,8 @@ interface CallHistoryMessageProps {
 
 const CallHistoryMessage: React.FC<CallHistoryMessageProps> = ({ message, currentUserId }) => {
   const isOutgoing = message.callerId === currentUserId;
+  const actualCallType = message.callType || message.type || 'audio';
+  const status = message.status || 'ended';
   
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${seconds}s`;
@@ -22,18 +25,18 @@ const CallHistoryMessage: React.FC<CallHistoryMessageProps> = ({ message, curren
   };
 
   const getCallIcon = () => {
-    if (message.status === 'missed' || message.status === 'declined') {
+    if (status === 'missed' || status === 'declined') {
       return <PhoneMissed className="w-5 h-5 mr-2" />;
     }
-    return message.callType === 'video' 
+    return actualCallType === 'video' 
       ? <Video className="w-5 h-5 mr-2" /> 
       : <Phone className="w-5 h-5 mr-2" />;
   };
 
   const getCallText = () => {
-    switch (message.status) {
+    switch (status) {
       case 'ended':
-        return `${isOutgoing ? 'Outgoing' : 'Incoming'} ${message.callType} call · ${formatDuration(message.duration || 0)}`;
+        return `${isOutgoing ? 'Outgoing' : 'Incoming'} ${actualCallType} call${message.duration ? ` · ${formatDuration(message.duration)}` : ''}`;
       case 'missed':
         return isOutgoing ? 'Call not answered' : 'Missed call';
       case 'declined':

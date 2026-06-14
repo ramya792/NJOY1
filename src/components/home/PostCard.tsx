@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, MessageCircle, Bookmark, Download, Loader2, Trash2, MoreHorizontal, Share2, Send, Copy, ExternalLink, X, Smile } from 'lucide-react';
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
 import { useNavigate } from 'react-router-dom';
-import { doc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, serverTimestamp, getDocs, query, orderBy, deleteDoc, where, limit } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, serverTimestamp, getDocs, query, orderBy, deleteDoc, where, limit, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
@@ -47,6 +47,7 @@ interface Post {
   likes: string[];
   comments: number;
   saves: string[];
+  shares?: number;
   createdAt: Date;
   allowDownload?: boolean;
 }
@@ -79,6 +80,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
   const [liked, setLiked] = useState(post.likes?.includes(userProfile?.uid || ''));
   const [saved, setSaved] = useState(post.saves?.includes(userProfile?.uid || ''));
   const [likesCount, setLikesCount] = useState(post.likes?.length || 0);
+  const [sharesCount, setSharesCount] = useState(post.shares || 0);
 
   // Helper to safely convert Firestore Timestamp to Date
   const toSafeDate = (date: any): Date => {
@@ -217,12 +219,22 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
     setShowShareDialog(true);
   };
   
+  const incrementShare = async () => {
+    try {
+      await updateDoc(doc(db, 'posts', post.id), { shares: increment(1) });
+      setSharesCount(prev => prev + 1);
+    } catch (e) {
+      console.error('Error incrementing share count:', e);
+    }
+  };
+  
   const handleCopyLink = async () => {
     const shareUrl = `${window.location.origin}/?postId=${post.id}`;
     try {
       await navigator.clipboard.writeText(shareUrl);
       toast({ title: 'Link copied to clipboard!' });
       setShowShareDialog(false);
+      incrementShare();
     } catch (error) {
       toast({ title: 'Failed to copy link', variant: 'destructive' });
     }
@@ -238,6 +250,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
           url: shareUrl,
         });
         setShowShareDialog(false);
+        incrementShare();
       } catch (error) {
         // User cancelled share
       }
@@ -319,6 +332,7 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
       setShowShareDialog(false);
       setShareSearchQuery('');
       setShareSearchResults([]);
+      incrementShare();
     } catch (error) {
       console.error('Error sharing post:', error);
       toast({ title: 'Failed to share', variant: 'destructive' });
@@ -339,8 +353,8 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
         const searchLower = shareSearchQuery.toLowerCase().trim();
         const usersQuery = query(
           collection(db, 'users'),
-          where('username', '>=', searchLower),
-          where('username', '<=', searchLower + '\uf8ff'),
+          where('usernameLower', '>=', searchLower),
+          where('usernameLower', '<=', searchLower + '\uf8ff'),
           limit(20)
         );
         const snapshot = await getDocs(usersQuery);
@@ -515,7 +529,15 @@ const PostCard = React.memo(forwardRef<HTMLDivElement, PostCardProps>(({ post, o
           )}
         </div>
 
-        <p className="font-semibold text-sm mb-1">{likesCount.toLocaleString()} {likesCount === 1 ? 'like' : 'likes'}</p>
+        <div className="flex flex-wrap items-center gap-x-2 font-semibold text-sm mb-1">
+          <p>{likesCount.toLocaleString()} {likesCount === 1 ? 'like' : 'likes'}</p>
+          {sharesCount > 0 && (
+            <>
+              <span className="text-muted-foreground">•</span>
+              <p className="text-muted-foreground">{sharesCount.toLocaleString()} {sharesCount === 1 ? 'share' : 'shares'}</p>
+            </>
+          )}
+        </div>
 
         {post.caption && (
           <p className="text-sm emoji-text">

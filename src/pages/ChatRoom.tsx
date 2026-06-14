@@ -52,7 +52,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import EmojiPicker, { EmojiClickData, Theme, Emoji } from 'emoji-picker-react';
+import EmojiPicker, { EmojiClickData, Theme, Emoji, EmojiStyle } from 'emoji-picker-react';
+import TextareaAutosize from 'react-textarea-autosize';
 import { CallService, turnConfig } from '@/lib/callService';
 import ChatWallpaperPicker, { getChatWallpaper, getWallpaperStyle, WallpaperConfig } from '@/components/chat/ChatWallpaper';
 import OutgoingCall from "@/components/calls/OutgoingCall";
@@ -70,6 +71,7 @@ interface Message {
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'pdf' | 'audio';
   fileName?: string;
+  postId?: string;
   createdAt: Date;
   seen: boolean;
   deletedFor?: string[];
@@ -147,6 +149,7 @@ const ChatRoom: React.FC = () => {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
+  const [fullScreenMedia, setFullScreenMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [showUserInfoDialog, setShowUserInfoDialog] = useState(false);
   const [participantFollowers, setParticipantFollowers] = useState<string[]>([]);
   const [participantFollowing, setParticipantFollowing] = useState<string[]>([]);
@@ -352,7 +355,9 @@ const ChatRoom: React.FC = () => {
   // Scroll to bottom - instant for new messages, smooth for user actions
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     requestAnimationFrame(() => {
-      if (messagesContainerRef.current) {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
+      } else if (messagesContainerRef.current) {
         messagesContainerRef.current.scrollTo({
           top: messagesContainerRef.current.scrollHeight,
           behavior: behavior,
@@ -572,8 +577,8 @@ const ChatRoom: React.FC = () => {
           ...docSnap.data(),
           createdAt: docSnap.data().createdAt?.toDate() || new Date(),
           editedAt: docSnap.data().editedAt?.toDate() || undefined,
-        }))
-        .filter((msg: Message) => !msg.deletedFor?.includes(userProfile.uid)) as Message[];
+        } as Message))
+        .filter((msg) => !msg.deletedFor?.includes(userProfile.uid));
       
       setMessages(fetchedMessages);
       
@@ -601,27 +606,35 @@ const ChatRoom: React.FC = () => {
 
   // Ensure scroll to bottom after messages render on initial load
   useEffect(() => {
-    if (messages.length > 0 && isInitialLoadRef.current && messagesContainerRef.current) {
-      // Wait for images and media to load before scrolling
-      // Use multiple delays to ensure content is fully rendered
-      const scrollTimer = setTimeout(() => {
-        if (messagesContainerRef.current) {
-          // Force scroll to bottom
+    if (messages.length > 0 && isInitialLoadRef.current) {
+      // Brute-force scroll for the first 1.5 seconds to combat slow image loading and DOM repaints
+      let attempts = 0;
+      const scrollInterval = setInterval(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+        } else if (messagesContainerRef.current) {
           messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-          
-          // Double-check after a brief moment in case images are still loading
-          setTimeout(() => {
-            if (messagesContainerRef.current && isInitialLoadRef.current) {
-              messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-              isInitialLoadRef.current = false;
-            }
-          }, 100);
         }
-      }, 50);
+        
+        attempts++;
+        if (attempts >= 15) { // 1.5 seconds (100ms * 15)
+          clearInterval(scrollInterval);
+          isInitialLoadRef.current = false;
+        }
+      }, 100);
 
-      return () => clearTimeout(scrollTimer);
+      // Also do an immediate scroll
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+      } else if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+
+      return () => {
+        clearInterval(scrollInterval);
+      };
     }
-  }, [messages.length]);
+  }, [messages]);
 
   const uploadToCloudinary = async (file: File | Blob, resourceType: string = 'auto'): Promise<{ url: string; type: string }> => {
     const formData = new FormData();
@@ -1204,6 +1217,9 @@ const ChatRoom: React.FC = () => {
         const answerDescription = new RTCSessionDescription(data.answer);
         pc.setRemoteDescription(answerDescription);
       }
+      if (data?.status === 'rejected' || data?.status === 'missed' || data?.status === 'ended') {
+        endCall();
+      }
     });
 
     onSnapshot(answerCandidatesRef, snapshot => {
@@ -1216,7 +1232,7 @@ const ChatRoom: React.FC = () => {
     });
   };
 
-  const endCall = () => {
+  const endCall = async () => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
     }
@@ -1226,6 +1242,36 @@ const ChatRoom: React.FC = () => {
     setInCall(false);
     setLocalStream(null);
     setRemoteStream(null);
+
+    // Create call history message in chat
+    if (currentConversationId && userProfile && participant) {
+      try {
+        await addDoc(collection(db, 'conversations', currentConversationId, 'messages'), {
+          senderId: userProfile.uid,
+          text: `Call ended`,
+          type: 'call',
+          callInfo: {
+            callerId: userProfile.uid,
+            callerName: userProfile.username,
+            callerPhoto: userProfile.photoURL || '',
+            receiverId: participant.uid,
+            receiverName: participant.username,
+            receiverPhoto: participant.photoURL || '',
+            type: callType,
+          },
+          createdAt: serverTimestamp(),
+          seen: false,
+        });
+        
+        await updateDoc(doc(db, 'conversations', currentConversationId), {
+          lastMessage: `📞 ${callType === 'video' ? 'Video' : 'Voice'} call`,
+          lastMessageTime: serverTimestamp(),
+          unreadBy: [participant.uid],
+        });
+      } catch (error) {
+        console.error('Error adding call log:', error);
+      }
+    }
   };
 
   const formatRecordingTime = (seconds: number) => {
@@ -1355,31 +1401,120 @@ const ChatRoom: React.FC = () => {
     return parts.length > 0 ? <span>{parts}</span> : <span>{text}</span>;
   };
 
+  const handleMediaClick = (e: React.MouseEvent, message: Message) => {
+    e.stopPropagation();
+    if (message.postId) {
+      navigate(`/post/${message.postId}`);
+    } else {
+      if (message.mediaUrl && (message.mediaType === 'image' || message.mediaType === 'video')) {
+        setFullScreenMedia({ url: message.mediaUrl, type: message.mediaType });
+      }
+    }
+  };
+
   const renderMessage = (message: Message) => {
     if (message.type === 'call' && userProfile) {
-      return <CallHistoryMessage message={message.callInfo} currentUserId={userProfile.uid} />;
+      return <CallHistoryMessage message={message.callInfo!} currentUserId={userProfile.uid} />;
     }
+
+    if (message.postId && message.mediaUrl) {
+      const isMine = message.senderId === userProfile?.uid;
+      const usernameMatch = message.text?.match(/@([a-zA-Z0-9_.-]+)/);
+      const postAuthor = usernameMatch ? usernameMatch[1] : 'User';
+      const isReel = message.text?.toLowerCase().includes('reel');
+      
+      return (
+        <div 
+          className="flex flex-col overflow-hidden rounded-xl bg-card border border-border cursor-pointer w-[240px] max-w-full my-1 shadow-sm"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (isReel) {
+              navigate(`/reels?id=${message.postId}`);
+            } else {
+              navigate(`/post/${message.postId}`);
+            }
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center gap-2 p-2.5 bg-card text-foreground">
+            <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold overflow-hidden flex-shrink-0 text-foreground">
+              {postAuthor.charAt(0).toUpperCase() || 'U'}
+            </div>
+            <span className="font-semibold text-xs text-foreground">{postAuthor}</span>
+          </div>
+          
+          {/* Media */}
+          {message.mediaType === 'video' || message.mediaUrl?.includes('.mp4') || message.mediaUrl?.includes('firebasestorage') && isReel ? (
+             <div className="relative w-full aspect-[4/5] bg-black flex items-center justify-center pointer-events-none">
+               <video src={message.mediaUrl} className="w-full h-full object-cover pointer-events-none" />
+               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                 <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
+                   <Play className="w-6 h-6 text-white ml-1" />
+                 </div>
+               </div>
+             </div>
+          ) : (
+             <div className="relative w-full aspect-[4/5] bg-black flex items-center justify-center">
+               <img src={message.mediaUrl} className="w-full h-full object-cover" alt="Shared post" />
+             </div>
+          )}
+
+          {/* Footer */}
+          <div className="p-2.5 bg-card text-foreground">
+             <p className="text-[11px] text-muted-foreground line-clamp-1 leading-tight">
+               <span className="font-semibold text-foreground mr-1">{postAuthor}</span>
+               {isReel ? 'Shared a reel.' : 'Shared a post.'}
+             </p>
+          </div>
+        </div>
+      );
+    }
+
+    let mediaContent = null;
+    
     if (message.mediaUrl) {
       if (message.mediaType === 'image') {
-        return (
+        mediaContent = (
           <img 
             src={message.mediaUrl} 
             alt="Shared image" 
-            className="max-w-full rounded-lg max-h-60 object-cover"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMediaClick(e, message); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="max-w-full rounded-lg max-h-60 object-cover cursor-pointer hover:opacity-90 transition-opacity"
           />
         );
-      }
-      if (message.mediaType === 'video') {
-        return (
-          <video 
-            src={message.mediaUrl} 
-            controls 
-            className="max-w-full rounded-lg max-h-60"
-          />
+      } else if (message.mediaType === 'video') {
+        mediaContent = (
+          <div 
+            className="relative cursor-pointer min-h-[150px] min-w-[200px] bg-black/10 rounded-lg flex items-center justify-center overflow-hidden"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleMediaClick(e, message);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <video 
+              src={message.mediaUrl} 
+              preload="metadata"
+              className="max-w-full w-full rounded-lg max-h-60 object-cover"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleMediaClick(e, message);
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-10 h-10 bg-black/50 rounded-full flex items-center justify-center">
+                <Play className="w-5 h-5 text-white ml-1" />
+              </div>
+            </div>
+          </div>
         );
-      }
-      if (message.mediaType === 'audio') {
-        return (
+      } else if (message.mediaType === 'audio') {
+        mediaContent = (
           <div className="flex items-center gap-3 min-w-[200px]">
             <button
               onClick={(e) => {
@@ -1395,7 +1530,6 @@ const ChatRoom: React.FC = () => {
                   audio.pause();
                   setPlayingAudio(null);
                 } else {
-                  // Pause any other playing audio
                   if (playingAudio) {
                     const otherAudio = document.getElementById(`audio-${playingAudio}`) as HTMLAudioElement;
                     otherAudio?.pause();
@@ -1440,9 +1574,8 @@ const ChatRoom: React.FC = () => {
             />
           </div>
         );
-      }
-      if (message.mediaType === 'pdf') {
-        return (
+      } else if (message.mediaType === 'pdf') {
+        mediaContent = (
           <a 
             href={message.mediaUrl} 
             target="_blank" 
@@ -1460,10 +1593,16 @@ const ChatRoom: React.FC = () => {
         );
       }
     }
+
     return (
-      <p className="text-sm" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-        {renderTextWithLinks(message.text)}
-      </p>
+      <div className="flex flex-col gap-1">
+        {mediaContent}
+        {message.text && (
+          <p className="text-sm mt-1" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+            {renderTextWithLinks(message.text)}
+          </p>
+        )}
+      </div>
     );
   };
 
@@ -1480,7 +1619,7 @@ const ChatRoom: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-background max-w-lg mx-auto w-full relative sm:border-x sm:border-border shadow-sm shadow-border/50">
       {/* Header */}
       <header className="flex-shrink-0 glass border-b border-border z-10">
         <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
@@ -1721,10 +1860,6 @@ const ChatRoom: React.FC = () => {
                         Edit
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => handleSaveMessage(message)}>
-                      <Bookmark className="w-4 h-4 mr-2" />
-                      {userProfile?.savedPosts?.includes(`msg_${currentConversationId}_${message.id}`) ? 'Unsave' : 'Save'}
-                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => { setSelectedMessage(message); setShowDeleteDialog(true); }}>
                       <Trash2 className="w-4 h-4 mr-2" />
@@ -1994,11 +2129,14 @@ const ChatRoom: React.FC = () => {
                 )}
               </AnimatePresence>
 
-              <Input
+              <TextareaAutosize
+                minRows={1}
+                maxRows={5}
                 value={editingMessage ? editText : newMessage}
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
                     if (editingMessage) {
                       handleSaveEdit();
                     } else {
@@ -2016,12 +2154,12 @@ const ChatRoom: React.FC = () => {
                       ? "Ask me anything..." 
                       : "Message..."
                 }
-                className="pr-10 rounded-full emoji-text"
+                className="flex w-full rounded-2xl border border-input bg-background px-4 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 pr-10 resize-none emoji-text"
                 disabled={uploading}
               />
               <button 
                 onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
+                className="absolute right-3 bottom-2"
                 data-emoji-button
               >
                 <Smile className="w-5 h-5 text-muted-foreground" />
@@ -2038,6 +2176,7 @@ const ChatRoom: React.FC = () => {
                     <EmojiPicker 
                       onEmojiClick={handleEmojiSelect}
                       theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                      emojiStyle={EmojiStyle.NATIVE}
                       width={320}
                       height={400}
                       previewConfig={{ showPreview: false }}
@@ -2308,6 +2447,34 @@ const ChatRoom: React.FC = () => {
           currentWallpaper={wallpaper}
         />
       )}
+
+      {/* Fullscreen Media Viewer */}
+      <Dialog open={!!fullScreenMedia} onOpenChange={() => setFullScreenMedia(null)}>
+        <DialogContent className="max-w-4xl bg-black/95 p-0 border-none h-[90vh] flex flex-col justify-center">
+          <div className="absolute top-4 right-4 z-50">
+            <button 
+              onClick={() => setFullScreenMedia(null)}
+              className="w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          {fullScreenMedia?.type === 'image' ? (
+            <img 
+              src={fullScreenMedia.url} 
+              alt="Fullscreen media" 
+              className="max-w-full max-h-full object-contain mx-auto"
+            />
+          ) : fullScreenMedia?.type === 'video' ? (
+            <video 
+              src={fullScreenMedia.url} 
+              controls 
+              autoPlay
+              className="max-w-full max-h-full object-contain mx-auto"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

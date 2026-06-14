@@ -37,7 +37,7 @@ export class CallService {
     return callDoc.id;
   }
 
-  static listenForIncomingCalls(userId: string, onCall: (call: CallData) => void) {
+  static listenForIncomingCalls(userId: string, onCall: (call: CallData | null) => void) {
     const callsQuery = query(
       collection(db, 'calls'),
       where('receiverId', '==', userId),
@@ -45,14 +45,27 @@ export class CallService {
     );
 
     return onSnapshot(callsQuery, (snapshot) => {
+      let activeCall: CallData | null = null;
+      
       snapshot.docs.forEach((doc) => {
-        const callData = {
-          id: doc.id,
-          ...doc.data(),
-          startTime: doc.data().startTime?.toDate() || new Date(),
-        } as CallData;
-        onCall(callData);
+        const data = doc.data();
+        const startTime = data.startTime?.toDate() || new Date();
+        const now = new Date();
+        const ageInSeconds = (now.getTime() - startTime.getTime()) / 1000;
+        
+        if (ageInSeconds < 60) {
+          activeCall = {
+            id: doc.id,
+            ...data,
+            startTime,
+          } as CallData;
+        } else {
+          // Clean up ghost calls
+          CallService.markAsMissed(doc.id).catch(() => {});
+        }
       });
+      
+      onCall(activeCall);
     });
   }
 

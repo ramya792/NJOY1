@@ -32,6 +32,7 @@ const TermsOfService = React.lazy(() => import("@/pages/TermsOfService"));
 const PrivacyPolicy = React.lazy(() => import("@/pages/PrivacyPolicy"));
 const VideoSongs = React.lazy(() => import("@/pages/VideoSongs"));
 const AIChats = React.lazy(() => import("@/pages/AIChats"));
+const SinglePost = React.lazy(() => import("@/pages/SinglePost"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +106,7 @@ const AppRoutes = () => (
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/create" element={<CreatePost />} />
         <Route path="/user/:userId" element={<UserProfile />} />
+        <Route path="/post/:postId" element={<SinglePost />} />
         <Route path="/video-songs" element={<VideoSongs />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

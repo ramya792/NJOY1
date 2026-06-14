@@ -1,11 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Music, Play, Check, Pause, Loader2, Scissors } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
-import MUSIC_LIBRARY, { fetchPreviewUrl, searchMusic } from '@/lib/musicData';
+import { fetchPreviewUrl, searchMusicOnline } from '@/lib/musicData';
 import type { MusicTrack } from '@/lib/musicData';
 
 interface MusicSelectorProps {
@@ -22,9 +22,58 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [selectedForTrim, setSelectedForTrim] = useState<MusicTrack | null>(null);
   const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(30);
+  const [trimEnd, setTrimEnd] = useState(20);
+  const [filteredMusic, setFilteredMusic] = useState<MusicTrack[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isPlayingTrim, setIsPlayingTrim] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const trimAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const waveformBars = useMemo(() => {
+    return Array.from({ length: 45 }).map(() => Math.random() * 60 + 20);
+  }, [selectedForTrim]);
+
+  // Handle cleanup when dialog closes or component unmounts
+  useEffect(() => {
+    if (!open) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      if (trimAudioRef.current) {
+        trimAudioRef.current.pause();
+        trimAudioRef.current.currentTime = 0;
+      }
+      setPlayingId(null);
+      setIsPlayingTrim(false);
+      setSelectedForTrim(null);
+    }
+  }, [open]);
+
+  // Stop audio when navigating away
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (audioRef.current) audioRef.current.pause();
+        if (trimAudioRef.current) trimAudioRef.current.pause();
+        setPlayingId(null);
+        setIsPlayingTrim(false);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (trimAudioRef.current) {
+        trimAudioRef.current.pause();
+        trimAudioRef.current = null;
+      }
+    };
+  }, []);
 
   const handlePreviewPlay = async (track: MusicTrack) => {
     if (playingId === track.id) {
@@ -92,8 +141,8 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
     }
   };
 
-  // Cleanup audio on close
-  React.useEffect(() => {
+  // Cleanup audio on close and unmount
+  useEffect(() => {
     if (!open) {
       audioRef.current?.pause();
       audioRef.current = null;
@@ -104,12 +153,36 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
       setSearchQuery(''); // Reset search on close
       setSelectedForTrim(null);
     }
+    
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (trimAudioRef.current) {
+        trimAudioRef.current.pause();
+        trimAudioRef.current = null;
+      }
+    };
   }, [open]);
 
-  // Filter music - show all if no search, otherwise search by title, artist, or movie name
-  const filteredMusic = searchQuery.trim().length >= 1
-    ? searchMusic(searchQuery)
-    : MUSIC_LIBRARY;
+  // Filter music using online search
+  useEffect(() => {
+    const search = async () => {
+      setIsSearching(true);
+      try {
+        const results = await searchMusicOnline(searchQuery);
+        setFilteredMusic(results);
+      } catch (error) {
+        console.error('Search error:', error);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(search, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery]);
 
   const handleTrimSong = async (track: MusicTrack) => {
     // Stop any playing preview
@@ -123,10 +196,11 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
     // Load song for trimming
     setSelectedForTrim(track);
     setTrimStart(0);
-    setTrimEnd(Math.min(30, parseDuration(track.duration)));
+    setTrimEnd(Math.min(20, parseDuration(track.duration)));
   };
 
-  const parseDuration = (duration: string): number => {
+  const parseDuration = (duration?: string): number => {
+    if (!duration) return 30;
     const parts = duration.split(':').map(Number);
     if (parts.length === 2) return parts[0] * 60 + parts[1];
     if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -147,6 +221,7 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
       trimAudioRef.current = null;
     }
 
+    setIsPlayingTrim(true);
     const itunesUrl = await fetchPreviewUrl(selectedForTrim.title, selectedForTrim.artist);
     const url = itunesUrl || selectedForTrim.previewUrl;
 
@@ -155,13 +230,17 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
     audio.volume = 0.5;
     
     const stopAt = () => {
+      setCurrentTime(audio.currentTime);
       if (audio.currentTime >= trimEnd) {
-        audio.pause();
-        audio.currentTime = trimStart;
+        audio.currentTime = trimStart; // Loop seamlessly
+        setCurrentTime(trimStart);
       }
     };
     
     audio.addEventListener('timeupdate', stopAt);
+    audio.addEventListener('pause', () => setIsPlayingTrim(false));
+    audio.addEventListener('play', () => setIsPlayingTrim(true));
+    
     await audio.play();
     trimAudioRef.current = audio;
   };
@@ -209,7 +288,7 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 z-50"
+            className="fixed inset-0 bg-black/60 z-[70]"
           />
 
           {/* Dialog */}
@@ -217,7 +296,7 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-card rounded-t-2xl safe-bottom"
+            className="fixed bottom-0 left-0 right-0 z-[70] bg-card rounded-t-2xl safe-bottom"
             style={{ maxHeight: '85vh' }}
           >
             {/* Header */}
@@ -238,14 +317,16 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder="Search by song name, artist, or movie..."
+                  placeholder="Search songs..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 rounded-full"
                   autoFocus
                 />
               </div>
-              {filteredMusic.length > 0 && (
+              {isSearching ? (
+                <p className="text-xs text-muted-foreground mt-2 text-center">Searching...</p>
+              ) : filteredMusic.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-2 text-center">
                   {filteredMusic.length} {filteredMusic.length === 1 ? 'song' : 'songs'} {searchQuery ? 'found' : 'available'}
                 </p>
@@ -325,97 +406,131 @@ const MusicSelector: React.FC<MusicSelectorProps> = ({ open, onClose, onSelect, 
             </ScrollArea>
           </motion.div>
 
-          {/* Trim Dialog */}
+          {/* Instagram-Style Trim Dialog Overlay */}
           <AnimatePresence>
             {selectedForTrim && (
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80"
-                onClick={() => {
-                  if (trimAudioRef.current) {
-                    trimAudioRef.current.pause();
-                    trimAudioRef.current = null;
-                  }
-                  setSelectedForTrim(null);
-                }}
+                initial={{ opacity: 0, y: '100%' }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="fixed inset-0 z-[80] flex flex-col bg-black/90 backdrop-blur-sm"
               >
-                <motion.div
-                  initial={{ y: 20 }}
-                  animate={{ y: 0 }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="bg-card rounded-2xl p-6 max-w-md w-full"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Scissors className="w-6 h-6 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold truncate">{selectedForTrim.title}</h3>
-                      <p className="text-sm text-muted-foreground truncate">{selectedForTrim.artist}</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (trimAudioRef.current) {
-                          trimAudioRef.current.pause();
-                          trimAudioRef.current = null;
-                        }
-                        setSelectedForTrim(null);
-                      }}
-                      className="p-2 hover:bg-secondary rounded-lg"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 pt-safe-top">
+                  <button 
+                    onClick={() => {
+                      if (trimAudioRef.current) trimAudioRef.current.pause();
+                      setSelectedForTrim(null);
+                    }}
+                    className="text-white text-lg font-medium drop-shadow-md"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleSaveTrimmed}
+                    className="text-white text-lg font-bold drop-shadow-md flex items-center justify-center w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                  >
+                    <Check className="w-5 h-5 text-white" />
+                  </button>
+                </div>
 
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium">Start Time</label>
-                        <span className="text-sm text-muted-foreground">{formatTime(trimStart)}</span>
-                      </div>
-                      <Slider
-                        value={[trimStart]}
-                        onValueChange={([val]) => setTrimStart(Math.min(val, trimEnd - 5))}
-                        max={parseDuration(selectedForTrim.duration) - 5}
-                        step={1}
-                        className="w-full"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium">End Time</label>
-                        <span className="text-sm text-muted-foreground">{formatTime(trimEnd)}</span>
-                      </div>
-                      <Slider
-                        value={[trimEnd]}
-                        onValueChange={([val]) => setTrimEnd(Math.max(val, trimStart + 5))}
-                        max={Math.min(parseDuration(selectedForTrim.duration), trimStart + 30)}
-                        min={trimStart + 5}
-                        step={1}
-                        className="w-full"
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                      <span className="text-sm font-medium">Duration</span>
-                      <span className="text-sm text-primary font-medium">{formatTime(trimEnd - trimStart)}</span>
-                    </div>
-
-                    <div className="flex gap-2 pt-2">
-                      <Button variant="outline" onClick={handlePreviewTrim} className="flex-1">
-                        <Play className="w-4 h-4 mr-2" />
-                        Preview
-                      </Button>
-                      <Button onClick={handleSaveTrimmed} className="flex-1">
-                        <Check className="w-4 h-4 mr-2" />
-                        Use This
-                      </Button>
+                {/* Center Art */}
+                <div className="flex-1 flex flex-col items-center justify-center -mt-10 px-4">
+                  <div className="relative w-56 h-56 rounded-2xl overflow-hidden shadow-2xl shadow-black/50 mb-6 border border-white/20">
+                    <img 
+                      src={selectedForTrim.thumbnailUrl || 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=500&q=80'} 
+                      alt="Album Art" 
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4">
+                       {isPlayingTrim ? (
+                         <div className="flex gap-1.5 items-end justify-center mb-4 h-10">
+                           <div className="w-1.5 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '40%', animationDelay: '0ms' }} />
+                           <div className="w-1.5 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '80%', animationDelay: '150ms' }} />
+                           <div className="w-1.5 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '60%', animationDelay: '300ms' }} />
+                           <div className="w-1.5 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '100%', animationDelay: '450ms' }} />
+                         </div>
+                       ) : (
+                         <Music className="w-10 h-10 text-white mb-4 drop-shadow-md" />
+                       )}
+                       <h3 className="font-serif text-white text-center drop-shadow-md text-[22px] truncate w-full">
+                         {selectedForTrim.title || 'Unknown Title'}
+                       </h3>
                     </div>
                   </div>
-                </motion.div>
+                  <p className="font-serif text-white/90 drop-shadow-md text-lg text-center truncate w-full max-w-[250px]">{selectedForTrim.title}</p>
+                  <p className="font-serif text-white/60 text-sm drop-shadow-md text-center truncate w-full max-w-[250px]">{selectedForTrim.artist}</p>
+                </div>
+
+                {/* Bottom Controls */}
+                <div className="pb-8 pt-6 px-4 bg-gradient-to-t from-black via-black/90 to-transparent flex flex-col gap-8 safe-bottom items-center">
+                  
+                  {/* Simple Waveform Scrubber */}
+                  <div className="relative w-full max-w-sm h-12 bg-black rounded-full overflow-hidden flex items-center shadow-2xl border border-white/5">
+                    
+                    {/* The Dots */}
+                    <div className="absolute inset-0 flex items-center justify-between gap-[2px] px-3 pointer-events-none">
+                      {waveformBars.map((h, i) => {
+                        const isInside = i / 45 >= trimStart / parseDuration(selectedForTrim.duration) && i / 45 <= (trimStart + 20) / parseDuration(selectedForTrim.duration);
+                        return (
+                          <div 
+                            key={i} 
+                            className={`flex-1 rounded-full ${isInside ? 'bg-white' : 'bg-[#333333]'}`} 
+                            style={{ height: `${h}%` }} 
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* Invisible slider for dragging */}
+                     <input
+                       type="range"
+                       min={0}
+                       max={Math.max(0, parseDuration(selectedForTrim.duration) - 20)}
+                       value={trimStart}
+                       onChange={(e) => {
+                         const start = Number(e.target.value);
+                         setTrimStart(start);
+                         setTrimEnd(Math.min(start + 20, parseDuration(selectedForTrim.duration)));
+                         if (trimAudioRef.current) {
+                           trimAudioRef.current.currentTime = start;
+                           setCurrentTime(start);
+                           if (trimAudioRef.current.paused) {
+                             handlePreviewTrim();
+                           }
+                         } else {
+                           handlePreviewTrim();
+                         }
+                       }}
+                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30"
+                     />
+                  </div>
+
+                  <div className="flex items-center justify-between px-4">
+                     <div className="w-10 h-10 rounded-full border-2 border-white/50 flex items-center justify-center text-white font-bold text-xs shadow-md">
+                       20
+                     </div>
+                     <button 
+                       onClick={() => {
+                         if (trimAudioRef.current) {
+                           if (trimAudioRef.current.paused) trimAudioRef.current.play();
+                           else trimAudioRef.current.pause();
+                         } else {
+                           handlePreviewTrim();
+                         }
+                       }}
+                       className="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
+                     >
+                       {isPlayingTrim ? (
+                         <Pause className="w-6 h-6" fill="currentColor" />
+                       ) : (
+                         <Play className="w-6 h-6 ml-1" fill="currentColor" />
+                       )}
+                     </button>
+                     <div className="w-10 h-10" /> {/* Balancer */}
+                  </div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

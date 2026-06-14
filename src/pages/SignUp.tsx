@@ -6,6 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 const SignUp: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -29,9 +31,34 @@ const SignUp: React.FC = () => {
       return;
     }
 
+    if (!/^[A-Za-z]/.test(username)) {
+      toast({
+        title: 'Invalid username',
+        description: 'Username must start with an alphabetical letter',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
-      await signUp(email, password, username);
+      // Check if username exists
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('username', '==', username.toLowerCase())
+      );
+      const snapshot = await getDocs(usersQuery);
+      if (!snapshot.empty) {
+        toast({
+          title: 'Username taken',
+          description: 'This username is already in use. Please choose another one.',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
+      await signUp(email, password, username.toLowerCase());
       navigate('/');
     } catch (error: any) {
       toast({

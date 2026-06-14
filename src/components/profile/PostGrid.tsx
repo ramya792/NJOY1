@@ -31,6 +31,7 @@ interface PostGridProps {
   isOwnProfile?: boolean;
   contentType?: 'posts' | 'reels';
   onPostDeleted?: (postId: string) => void;
+  onPostClick?: (post: Post) => void;
 }
 
 const PostGrid: React.FC<PostGridProps> = ({ 
@@ -39,7 +40,8 @@ const PostGrid: React.FC<PostGridProps> = ({
   emptyMessage, 
   isOwnProfile = false,
   contentType = 'posts',
-  onPostDeleted
+  onPostDeleted,
+  onPostClick
 }) => {
   const navigate = useNavigate();
   const { userProfile } = useAuth();
@@ -114,10 +116,14 @@ const PostGrid: React.FC<PostGridProps> = ({
           >
             <button
               onClick={() => {
-                if (contentType === 'reels') {
-                  navigate(`/reels?id=${post.id}`);
+                if (onPostClick) {
+                  onPostClick(post);
                 } else {
-                  navigate(`/post/${post.id}`);
+                  if (contentType === 'reels') {
+                    navigate(`/reels?id=${post.id}`);
+                  } else {
+                    navigate(`/post/${post.id}`);
+                  }
                 }
               }}
               className="w-full h-full"

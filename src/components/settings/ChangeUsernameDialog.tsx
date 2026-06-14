@@ -32,6 +32,7 @@ const ChangeUsernameDialog: React.FC<ChangeUsernameDialogProps> = ({
     minLength: newUsername.length >= 3,
     maxLength: newUsername.length <= 30,
     validChars: /^[a-zA-Z0-9._]+$/.test(newUsername),
+    startsWithAlphabet: /^[A-Za-z]/.test(newUsername),
     noConsecutiveDots: !/\.\./.test(newUsername),
     noStartEndDot: !/^\./.test(newUsername) && !/\.$/.test(newUsername),
     different: newUsername.toLowerCase() !== currentUsername.toLowerCase(),
@@ -40,6 +41,7 @@ const ChangeUsernameDialog: React.FC<ChangeUsernameDialogProps> = ({
   const formatValid = validations.minLength && 
                       validations.maxLength && 
                       validations.validChars && 
+                      validations.startsWithAlphabet &&
                       validations.noConsecutiveDots && 
                       validations.noStartEndDot;
 
@@ -157,6 +159,7 @@ const ChangeUsernameDialog: React.FC<ChangeUsernameDialogProps> = ({
             <ValidationItem valid={validations.minLength} text="At least 3 characters" />
             <ValidationItem valid={validations.maxLength} text="Maximum 30 characters" />
             <ValidationItem valid={validations.validChars} text="Letters, numbers, dots, underscores only" />
+            <ValidationItem valid={validations.startsWithAlphabet} text="Must start with a letter" />
             <ValidationItem valid={validations.noConsecutiveDots} text="No consecutive dots" />
             <ValidationItem valid={validations.noStartEndDot} text="Cannot start/end with dot" />
           </div>

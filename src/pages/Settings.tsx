@@ -39,6 +39,8 @@ const Settings: React.FC = () => {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
+  const [showDeleteAccountDialog, setShowDeleteAccountDialog] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   // Update activity status in Firestore when online
   useEffect(() => {
@@ -79,7 +81,7 @@ const Settings: React.FC = () => {
       toast({
         title: value ? 'Account set to Private' : 'Account set to Public',
         description: value 
-          ? 'Only approved followers can see your posts and reels.' 
+          ? 'Only approved followers and people you follow can see your posts and reels.' 
           : 'Anyone can see your posts, reels, and profile.',
       });
     } catch (error) {
@@ -187,6 +189,39 @@ const Settings: React.FC = () => {
     navigate('/login');
   };
 
+  const handleDeleteAccount = async () => {
+    if (!userProfile?.uid) return;
+    setIsDeletingAccount(true);
+    try {
+      const deletionDate = new Date();
+      deletionDate.setDate(deletionDate.getDate() + 7);
+      
+      await updateDoc(doc(db, 'users', userProfile.uid), {
+        isScheduledForDeletion: true,
+        scheduledDeletionDate: deletionDate,
+        isOnline: false,
+        lastSeen: serverTimestamp(),
+      });
+      
+      await logout();
+      navigate('/login');
+      toast({
+        title: 'Account Scheduled for Deletion',
+        description: 'Your account will be permanently deleted in 7 days.',
+      });
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to schedule account deletion. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDeletingAccount(false);
+      setShowDeleteAccountDialog(false);
+    }
+  };
+
   const settingSections = [
     {
       title: 'Account',
@@ -284,17 +319,7 @@ const Settings: React.FC = () => {
         },
       ],
     },
-    {
-      title: 'Entertainment',
-      items: [
-        {
-          icon: <Music className="w-5 h-5" />,
-          label: 'Video Songs',
-          description: 'Browse and watch music videos',
-          action: () => navigate('/video-songs'),
-        },
-      ],
-    },
+
     {
       title: 'Security',
       items: [
@@ -404,8 +429,8 @@ const Settings: React.FC = () => {
           </motion.div>
         ))}
 
-        {/* Logout Button */}
-        <div className="px-4 sm:px-6 py-6">
+        {/* Logout and Delete Account */}
+        <div className="px-4 sm:px-6 py-6 space-y-3">
           <Button
             onClick={() => setShowLogoutDialog(true)}
             variant="destructive"
@@ -414,11 +439,18 @@ const Settings: React.FC = () => {
             <LogOut className="w-4 h-4 mr-2" />
             Log Out
           </Button>
+          <Button
+            onClick={() => setShowDeleteAccountDialog(true)}
+            variant="outline"
+            className="w-full text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
+          >
+            Delete Account
+          </Button>
         </div>
 
         {/* App Version */}
         <p className="text-center text-xs text-muted-foreground pb-6 px-4">
-          NJOY v1.0.0
+          NJOY is created by Ramya Pamarthi
         </p>
       </div>
 
@@ -445,6 +477,35 @@ const Settings: React.FC = () => {
               onClick={handleLogout}
             >
               Log Out
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Account Dialog */}
+      <Dialog open={showDeleteAccountDialog} onOpenChange={setShowDeleteAccountDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Account</DialogTitle>
+            <DialogDescription>
+              Your account will be permanently deleted in 7 days. Your posts and reels will remain unless you delete them manually before this period. Do you wish to continue?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 mt-4">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setShowDeleteAccountDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={handleDeleteAccount}
+              disabled={isDeletingAccount}
+            >
+              {isDeletingAccount ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Delete'}
             </Button>
           </div>
         </DialogContent>

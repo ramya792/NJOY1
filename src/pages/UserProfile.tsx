@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import PostGrid from '@/components/profile/PostGrid';
 import FollowersModal from '@/components/profile/FollowersModal';
 import ShareProfileDialog from '@/components/profile/ShareProfileDialog';
+import SavedItemViewer from '@/components/profile/SavedItemViewer';
 import { useToast } from '@/hooks/use-toast';
 import {
   DropdownMenu,
@@ -42,6 +43,7 @@ interface Post {
   mediaType: 'image' | 'video';
   likes: string[];
   comments: number;
+  createdAt?: any;
 }
 
 const UserProfile: React.FC = () => {
@@ -131,7 +133,7 @@ const UserProfile: React.FC = () => {
   };
 
   const isOwnProfile = userId === currentUser?.uid;
-  const isFriend = followStatus === 'following';
+  const isFriend = followStatus === 'following' || (currentUser && profile?.following?.includes(currentUser.uid));
   const canViewContent = isFriend || !profile?.isPrivate;
 
   useEffect(() => {
@@ -391,9 +393,10 @@ const UserProfile: React.FC = () => {
       </header>
 
       {/* Profile Info */}
-      <div className="max-w-lg mx-auto px-4 pt-4 pb-2">
-        <div className="flex items-center gap-6 mb-3">
-          <div className="w-[86px] h-[86px] rounded-full overflow-hidden bg-secondary flex-shrink-0 relative ring-[3px] ring-border">
+      <div className="max-w-lg mx-auto w-full">
+        <div className="w-full px-4 pt-4 pb-2">
+          <div className="flex items-center gap-5 mb-3">
+            <div className="w-[86px] h-[86px] rounded-full overflow-hidden bg-secondary flex-shrink-0 relative ring-[3px] ring-border">
             {profile.photoURL ? (
               <img src={profile.photoURL} alt={profile.username} className="w-full h-full object-cover" />
             ) : (
@@ -406,36 +409,38 @@ const UserProfile: React.FC = () => {
             )}
           </div>
 
-          <div className="flex-1">
-            <div className="flex items-center justify-evenly">
-              <div className="text-center min-w-[56px]">
-                <p className="font-bold text-[17px] leading-tight">{canViewContent ? (profile.postsCount || 0) : '—'}</p>
-                <p className="text-[13px] text-muted-foreground leading-tight mt-0.5">posts</p>
-              </div>
-              <div 
-                className={`text-center min-w-[56px] ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
-                onClick={() => canViewContent && setShowFollowers(true)}
-              >
-                <p className="font-bold text-[17px] leading-tight">{canViewContent ? uniqueFollowers.length : '—'}</p>
-                <p className="text-[13px] text-muted-foreground leading-tight mt-0.5">followers</p>
-              </div>
-              <div 
-                className={`text-center min-w-[56px] ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
-                onClick={() => canViewContent && setShowFollowing(true)}
-              >
-                <p className="font-bold text-[17px] leading-tight">{canViewContent ? uniqueFollowing.length : '—'}</p>
-                <p className="text-[13px] text-muted-foreground leading-tight mt-0.5">following</p>
-              </div>
+          <div className="flex-1 flex items-center justify-evenly">
+            <div className="text-center min-w-[56px]">
+              <p className="font-bold text-[17px] leading-tight">
+                {canViewContent ? (posts.length + reels.length) : (profile.postsCount || 0)}
+              </p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">posts</p>
+            </div>
+            <div 
+              className={`text-center min-w-[56px] ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
+              onClick={() => canViewContent && setShowFollowers(true)}
+            >
+              <p className="font-bold text-[17px] leading-tight">{canViewContent ? uniqueFollowers.length : '-'}</p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">followers</p>
+            </div>
+            <div 
+              className={`text-center min-w-[56px] ${canViewContent ? 'cursor-pointer hover:opacity-70 transition-opacity' : ''}`}
+              onClick={() => canViewContent && setShowFollowing(true)}
+            >
+              <p className="font-bold text-[17px] leading-tight">{canViewContent ? uniqueFollowing.length : '-'}</p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">following</p>
             </div>
           </div>
         </div>
 
         <div className="mt-1 mb-3">
           <div className="flex items-center gap-2">
-            <p className="font-semibold text-[15px]">{profile.displayName || profile.username}</p>
+            <p className="font-semibold text-[15px] leading-snug">{profile.displayName || profile.username}</p>
             {profile.isPrivate && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
           </div>
-          {canViewContent && profile.bio && <p className="text-sm whitespace-pre-wrap mt-1 text-muted-foreground leading-[18px]">{profile.bio}</p>}
+          {canViewContent && profile.bio && (
+            <p className="text-sm whitespace-pre-wrap text-muted-foreground leading-[18px] mt-1">{profile.bio}</p>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -443,7 +448,7 @@ const UserProfile: React.FC = () => {
           <Button
             onClick={handleFollowAction}
             disabled={actionLoading || followStatus === 'requested'}
-            className={`flex-1 h-8 text-sm font-semibold ${followStatus === 'following' || followStatus === 'requested' ? '' : 'btn-gradient'}`}
+            className={`flex-1 font-semibold h-[34px] py-1.5 px-4 text-sm rounded-lg ${followStatus === 'following' || followStatus === 'requested' ? '' : 'btn-gradient'}`}
             variant={followStatus === 'following' || followStatus === 'requested' ? 'secondary' : 'default'}
             size="sm"
           >
@@ -452,7 +457,7 @@ const UserProfile: React.FC = () => {
             ) : followStatus === 'following' ? 'Following' : followStatus === 'requested' ? 'Requested' : 'Follow'}
           </Button>
           {canViewContent && (
-            <Button onClick={handleMessage} variant="secondary" size="sm" className="flex-1 h-8 text-sm">
+            <Button onClick={handleMessage} variant="secondary" size="sm" className="flex-1 font-semibold h-[34px] py-1.5 px-4 text-sm rounded-lg">
               <MessageCircle className="w-4 h-4 mr-2" />
               Message
             </Button>
@@ -462,20 +467,38 @@ const UserProfile: React.FC = () => {
 
       {/* Content - Only show if can view */}
       {canViewContent ? (
-        <Tabs defaultValue="posts" className="max-w-lg mx-auto">
-          <TabsList className="w-full bg-transparent border-t border-border rounded-none h-12">
-            <TabsTrigger value="posts" className="flex-1 rounded-none data-[state=active]:border-t-2 data-[state=active]:border-foreground">
-              <Grid3X3 className="w-5 h-5" />
+        <Tabs defaultValue="posts" className="w-full mt-[14px]">
+          <TabsList className="w-full bg-transparent border-t border-border rounded-none h-11 p-0 mb-1.5">
+            <TabsTrigger 
+              value="posts" 
+              className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
+            >
+              <Grid3X3 className="w-[22px] h-[22px]" />
             </TabsTrigger>
-            <TabsTrigger value="reels" className="flex-1 rounded-none data-[state=active]:border-t-2 data-[state=active]:border-foreground">
-              <Film className="w-5 h-5" />
+            <TabsTrigger 
+              value="reels" 
+              className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent h-full"
+            >
+              <Film className="w-[22px] h-[22px]" />
             </TabsTrigger>
           </TabsList>
           <TabsContent value="posts" className="mt-0">
-            <PostGrid posts={posts} loading={false} emptyMessage="No posts yet" contentType="posts" />
+            <PostGrid 
+              posts={posts} 
+              loading={false} 
+              emptyMessage="No posts yet" 
+              contentType="posts" 
+              onPostClick={(post) => navigate(`/post/${post.id}`)}
+            />
           </TabsContent>
           <TabsContent value="reels" className="mt-0">
-            <PostGrid posts={reels} loading={false} emptyMessage="No reels yet" contentType="reels" />
+            <PostGrid 
+              posts={reels} 
+              loading={false} 
+              emptyMessage="No reels yet" 
+              contentType="reels" 
+              onPostClick={(post) => navigate(`/reels?id=${post.id}`)}
+            />
           </TabsContent>
         </Tabs>
       ) : (
@@ -495,6 +518,7 @@ const UserProfile: React.FC = () => {
           </motion.div>
         </div>
       )}
+      </div>
 
       {/* Followers Modal - Shows the profile user's followers */}
       <FollowersModal

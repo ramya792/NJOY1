@@ -4,6 +4,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   updateProfile,
@@ -128,6 +130,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
+    // Handle mobile redirect sign-in results
+    const handleRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          await createUserProfile(result.user);
+          await fetchUserProfile(result.user.uid);
+        }
+      } catch (error) {
+        console.error('Redirect sign-in error:', error);
+      }
+    };
+    handleRedirect();
+
     return unsubscribe;
   }, []);
 
@@ -191,9 +207,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signInWithGoogle = async () => {
-    const { user } = await signInWithPopup(auth, googleProvider);
-    await createUserProfile(user);
-    await fetchUserProfile(user.uid);
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      await signInWithRedirect(auth, googleProvider);
+    } else {
+      const { user } = await signInWithPopup(auth, googleProvider);
+      await createUserProfile(user);
+      await fetchUserProfile(user.uid);
+    }
   };
 
   const logout = async () => {

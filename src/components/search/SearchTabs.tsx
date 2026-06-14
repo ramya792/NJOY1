@@ -316,7 +316,7 @@ const SearchTabs: React.FC = () => {
         const reelsQuery = query(
           collection(db, 'reels'),
           orderBy('createdAt', 'desc'),
-          limit(100)
+          limit(30)
         );
         const snapshot = await getDocs(reelsQuery);
         
@@ -425,6 +425,7 @@ const SearchTabs: React.FC = () => {
         }
 
         setExploreFeed(feedItems);
+        setExploreLoading(false); // Render feed instantly while checking privacy in background
 
         // Cache for instant restore (background)
         requestIdleCallback(() => {
@@ -435,12 +436,11 @@ const SearchTabs: React.FC = () => {
           }
         }, { timeout: 2000 });
 
-        // Check privacy for all unique user IDs
+        // Check privacy for all unique user IDs in background
         const uniqueUserIds = [...new Set(feedItems.map(item => item.userId))];
-        await checkPrivateUsers(uniqueUserIds);
+        checkPrivateUsers(uniqueUserIds).catch(console.error);
       } catch (error) {
         console.error('Error fetching explore feed:', error);
-      } finally {
         setExploreLoading(false);
       }
     };

@@ -61,7 +61,6 @@ const Profile: React.FC = () => {
   const [selectedSavedItem, setSelectedSavedItem] = useState<SavedItem | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [viewingSavedItem, setViewingSavedItem] = useState<SavedItem | null>(null);
   const [showShareDialog, setShowShareDialog] = useState(false);
 
   // Fetch followers data
@@ -313,6 +312,7 @@ const Profile: React.FC = () => {
             isOwnProfile={true}
             contentType="posts"
             onPostDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))}
+            onPostClick={(post) => navigate(`/post/${post.id}`)}
           />
         </TabsContent>
 
@@ -324,6 +324,7 @@ const Profile: React.FC = () => {
             isOwnProfile={true}
             contentType="reels"
             onPostDeleted={(id) => setReels(prev => prev.filter(p => p.id !== id))}
+            onPostClick={(post) => navigate(`/reels?id=${post.id}`)}
           />
         </TabsContent>
 
@@ -354,7 +355,7 @@ const Profile: React.FC = () => {
                     setSelectedSavedItem(item);
                     setShowDeleteDialog(true);
                   }}
-                  onView={(item) => setViewingSavedItem(item)}
+                  onView={(item) => navigate(`/post/${item.id}`)}
                 />
               ))}
             </div>
@@ -402,13 +403,6 @@ const Profile: React.FC = () => {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Saved Item Viewer */}
-      <SavedItemViewer
-        item={viewingSavedItem}
-        isOpen={!!viewingSavedItem}
-        onClose={() => setViewingSavedItem(null)}
-      />
 
       {/* Share Profile Dialog */}
       <ShareProfileDialog

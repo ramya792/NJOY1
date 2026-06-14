@@ -108,6 +108,19 @@ const Messages: React.FC = () => {
     const unsubscribe = onSnapshot(conversationsQuery, async (snapshot) => {
       const conversationsPromises = snapshot.docs.map(async (docSnapshot) => {
         const data = docSnapshot.data();
+        // Handle Group Chats
+        if (data.isGroup) {
+          return {
+            id: docSnapshot.id,
+            participantId: 'group_' + docSnapshot.id,
+            participantName: data.groupName || 'Group Chat',
+            participantPhoto: data.groupPhoto || '',
+            lastMessage: data.lastMessage || '',
+            lastMessageTime: data.lastMessageTime?.toDate() || new Date(),
+            unread: data.unreadBy?.includes(userProfile.uid) || false,
+          };
+        }
+
         const otherParticipantId = data.participants.find(
           (p: string) => p !== userProfile.uid
         );
@@ -134,7 +147,7 @@ const Messages: React.FC = () => {
         
         return {
           id: docSnapshot.id,
-          participantId: otherParticipantId,
+          participantId: otherParticipantId || 'unknown',
           participantName,
           participantPhoto,
           lastMessage: data.lastMessage || '',

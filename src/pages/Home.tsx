@@ -144,11 +144,34 @@ const Home: React.FC = () => {
     return () => unsubscribe();
   }, [userProfile]);
 
-  // Filter out private users' posts
+  // Filter out private users' posts and rank them by engagement/recency
   const visiblePosts = useMemo(() => {
-    return posts.filter(post => 
+    const filtered = posts.filter(post => 
       post.userId === userProfile?.uid || !privateUsers.has(post.userId)
     );
+
+    // Score and sort posts based on engagement and recency, with a random rotation factor
+    const scoredPosts = filtered.map(post => {
+      // Recency score (newer posts get higher score, max 100 points for posts within last 24h)
+      const hoursAgo = (Date.now() - post.createdAt.getTime()) / (1000 * 60 * 60);
+      const recencyScore = Math.max(0, 100 - hoursAgo * 2); 
+      
+      // Engagement score
+      const likesCount = post.likes?.length || 0;
+      const commentsCount = post.comments || 0;
+      const engagementScore = (likesCount * 2) + (commentsCount * 3);
+      
+      // Random rotation factor (0 to 30 points) to mix up the feed ("rotate all")
+      const randomFactor = Math.random() * 30;
+
+      return {
+        post,
+        score: recencyScore + engagementScore + randomFactor
+      };
+    });
+
+    // Sort by score descending and extract the original post
+    return scoredPosts.sort((a, b) => b.score - a.score).map(p => p.post);
   }, [posts, privateUsers, userProfile?.uid]);
 
   const handlePostDelete = useCallback((postId: string) => {

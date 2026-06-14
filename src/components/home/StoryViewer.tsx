@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2, Loader2, Music, Heart, Send } from 'lucide-react';
+import { X, Volume2, VolumeX, Eye, ChevronUp, Trash2, Loader2, Music, Heart, Send, Play } from 'lucide-react';
 import { doc, updateDoc, arrayUnion, arrayRemove, getDoc, deleteDoc, collection, query, where, getDocs, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,6 +11,17 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { fetchPreviewUrl } from '@/lib/musicData';
+
+export interface StoryOverlay {
+  id: string;
+  type: 'text' | 'sticker' | 'mention';
+  content: string;
+  position: { x: number; y: number };
+  scale: number;
+  fontFamily?: string;
+  color?: string;
+  hasBackground?: boolean;
+}
 
 interface Story {
   id: string;
@@ -28,7 +40,10 @@ interface Story {
     previewUrl?: string;
     startTime?: number;
     endTime?: number;
+    position?: { x: number; y: number };
+    scale?: number;
   } | null;
+  overlays?: StoryOverlay[];
 }
 
 interface ViewerInfo {
@@ -45,14 +60,16 @@ interface StoryViewerProps {
   stories: Story[];
   onClose: () => void;
   onStoryDeleted?: (storyId: string) => void;
+  initialIndex?: number;
 }
 
-const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onClose, onStoryDeleted }) => {
+const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onClose, onStoryDeleted, initialIndex = 0 }) => {
+  const navigate = useNavigate();
   const { userProfile } = useAuth();
   const { toast } = useToast();
   const [localStories, setLocalStories] = useState<Story[]>(initialStories);
   const [deleting, setDeleting] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [progress, setProgress] = useState(0);
   const [muted, setMuted] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
@@ -63,6 +80,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   const [showLikers, setShowLikers] = useState(false);
   const [likers, setLikers] = useState<ViewerInfo[]>([]);
   const [loadingLikers, setLoadingLikers] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const isPausedRef = useRef(false);
@@ -132,10 +150,31 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
   }, [currentIndex, localStories.length, onClose, currentStory, showViewers, showLikers]);
 
   useEffect(() => {
-    if (videoRef.current && currentStory?.mediaType === 'video') {
-      videoRef.current.play().catch(() => {});
+    if (videoRef.current && currentStory?.mediaType === 'video' && !isPausedRef.current && !autoplayBlocked) {
+      videoRef.current.play().catch(() => setAutoplayBlocked(true));
     }
-  }, [currentIndex, currentStory]);
+  }, [currentIndex, currentStory, autoplayBlocked]);
+
+  // Handle visibility change (screen off / tab switch)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (audioRef.current) audioRef.current.pause();
+        if (videoRef.current) videoRef.current.pause();
+        isPausedRef.current = true;
+      } else {
+        if (audioRef.current && !muted) audioRef.current.play().catch(() => setAutoplayBlocked(true));
+        if (videoRef.current) videoRef.current.play().catch(() => setAutoplayBlocked(true));
+        isPausedRef.current = false;
+        setAutoplayBlocked(false);
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [muted]);
 
   // Play music audio when story has music
   useEffect(() => {
@@ -204,9 +243,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         const tryPlay = async () => {
           try {
             await audio.play();
+            setAutoplayBlocked(false);
           } catch {
+            setAutoplayBlocked(true);
             const retryPlay = async () => {
-              try { await audio.play(); } catch {}
+              try { 
+                await audio.play(); 
+                setAutoplayBlocked(false);
+              } catch {}
               document.removeEventListener('click', retryPlay);
               document.removeEventListener('touchstart', retryPlay);
             };
@@ -440,11 +484,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
-    if (isPausedRef.current) {
+    if (isPausedRef.current && !autoplayBlocked && !document.hidden) {
       isPausedRef.current = false;
       setIsLongPressed(false);
-      if (videoRef.current) videoRef.current.play().catch(() => {});
-      if (audioRef.current) audioRef.current.play().catch(() => {});
+      if (videoRef.current) videoRef.current.play().catch(() => setAutoplayBlocked(true));
+      if (audioRef.current) audioRef.current.play().catch(() => setAutoplayBlocked(true));
     }
   };
 
@@ -476,19 +520,46 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       </div>
 
       {/* User info */}
-      <div className="absolute top-10 left-4 right-20 flex items-center gap-3 z-20">
+      <div 
+        className="absolute top-10 left-4 right-20 flex items-center gap-3 z-20 cursor-pointer"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/user/${currentStory.userId}`);
+          onClose();
+        }}
+      >
         <div className="w-8 h-8 rounded-full overflow-hidden bg-secondary">
           {currentStory.userPhoto ? (
             <img src={currentStory.userPhoto} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-sm font-semibold text-white">
-              {currentStory.username?.charAt(0).toUpperCase()}
+              {currentStory.username?.charAt?.(0)?.toUpperCase() || '?'}
             </div>
           )}
         </div>
         <span className="text-white text-sm font-semibold">{currentStory.username}</span>
         <span className="text-white/60 text-xs">
-          {formatDistanceToNow(currentStory.createdAt, { addSuffix: true })}
+          {(() => {
+            try {
+              if (!currentStory.createdAt) return 'just now';
+              const date = currentStory.createdAt instanceof Date 
+                ? currentStory.createdAt 
+                : new Date(currentStory.createdAt as any);
+              if (isNaN(date.getTime())) return 'just now';
+              let formatted = formatDistanceToNow(date, { addSuffix: true });
+              return formatted
+                .replace('less than a minute ago', '1min')
+                .replace(' minute ago', 'min')
+                .replace(' minutes ago', 'mins')
+                .replace('about ', '')
+                .replace(' hour ago', 'hour')
+                .replace(' hours ago', 'hours')
+                .replace(' day ago', 'day')
+                .replace(' days ago', 'days');
+            } catch (e) {
+              return 'just now';
+            }
+          })()}
         </span>
       </div>
 
@@ -531,7 +602,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
       {/* Media */}
 
       {/* Paused indicator */}
-      {isLongPressed && (
+      {isLongPressed && !autoplayBlocked && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
           <div className="bg-black/50 backdrop-blur-sm rounded-full p-4">
             <div className="flex gap-1.5">
@@ -541,6 +612,26 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
           </div>
         </div>
       )}
+
+      {/* Autoplay blocked overlay */}
+      {autoplayBlocked && (
+        <div 
+          className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm cursor-pointer"
+          onClick={() => {
+            setAutoplayBlocked(false);
+            if (videoRef.current) videoRef.current.play().catch(() => setAutoplayBlocked(true));
+            if (audioRef.current) audioRef.current.play().catch(() => setAutoplayBlocked(true));
+          }}
+        >
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md">
+              <Play className="w-10 h-10 text-white translate-x-1" fill="currentColor" />
+            </div>
+            <p className="text-white font-medium text-lg drop-shadow-md">Tap to play</p>
+          </div>
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
         <motion.div
           key={currentStory.id}
@@ -569,42 +660,90 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
         </motion.div>
       </AnimatePresence>
 
-      {/* Music overlay */}
+      {/* Music overlay sticker */}
       {currentStory.music && (
-        <div className="absolute bottom-24 left-4 right-4 z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-black/40 backdrop-blur-md rounded-full px-4 py-2.5 flex items-center gap-2"
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center overflow-hidden">
+          <div 
+            style={{ 
+              transform: `translate(${currentStory.music.position?.x || 0}px, ${currentStory.music.position?.y || 0}px) scale(${currentStory.music.scale || 1})` 
+            }}
+            className="flex flex-col items-center"
           >
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-            >
-              <Music className="w-4 h-4 text-white flex-shrink-0" />
-            </motion.div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">
-                {currentStory.music.title}
-              </p>
-              <p className="text-white/70 text-xs truncate">
-                {currentStory.music.artist}
-              </p>
+            <div className="relative w-32 h-32 rounded-xl overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.5)] mb-3 border border-white/20">
+              <img 
+                src={'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=500&q=80'} 
+                alt="Album Art" 
+                className="w-full h-full object-cover pointer-events-none"
+              />
+              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-2">
+                 {/* Bouncing Bars */}
+                 <div className="flex gap-1 items-end justify-center mb-2 h-6">
+                   <div className="w-1 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '40%', animationDelay: '0ms' }} />
+                   <div className="w-1 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '80%', animationDelay: '150ms' }} />
+                   <div className="w-1 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '60%', animationDelay: '300ms' }} />
+                   <div className="w-1 bg-white rounded-full animate-[music-bounce_1s_ease-in-out_infinite]" style={{ height: '100%', animationDelay: '450ms' }} />
+                 </div>
+                 <h3 className="font-serif text-white text-center drop-shadow-md text-[16px] truncate w-full">
+                   {currentStory.music.title || 'Unknown Title'}
+                 </h3>
+              </div>
             </div>
-            {/* Playing bars animation */}
-            <div className="flex items-end gap-0.5 h-4">
-              {[1, 2, 3].map((i) => (
-                <motion.div
-                  key={i}
-                  className="w-0.5 bg-white rounded-full"
-                  animate={{ height: ['4px', '16px', '8px', '14px', '4px'] }}
-                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
-                />
-              ))}
+            <div className="bg-black/30 backdrop-blur-md px-3 py-1.5 rounded-full pointer-events-none">
+              <p className="font-serif text-white/95 drop-shadow-lg text-sm text-center truncate max-w-[160px]">{currentStory.music.title}</p>
+              <p className="font-serif text-white/70 text-xs drop-shadow-md text-center truncate max-w-[160px] mt-0.5">{currentStory.music.artist}</p>
             </div>
-          </motion.div>
+          </div>
         </div>
       )}
+
+      {/* Overlays */}
+      {currentStory.overlays?.map((overlay) => (
+        <div key={overlay.id} className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center overflow-hidden">
+          <div 
+            style={{ 
+              transform: `translate(${overlay.position.x}px, ${overlay.position.y}px) scale(${overlay.scale})` 
+            }}
+            className="flex flex-col items-center drop-shadow-xl"
+          >
+            {overlay.type === 'text' && (
+              <div 
+                className={`font-bold text-3xl px-4 py-2 rounded-xl whitespace-pre-wrap text-center ${overlay.fontFamily || 'font-sans'} ${overlay.hasBackground ? (overlay.color === 'text-black' ? 'bg-white text-black' : 'bg-black text-white') : overlay.color || 'text-white'}`} 
+                style={{ textShadow: overlay.hasBackground ? 'none' : '0 2px 10px rgba(0,0,0,0.8)' }}
+              >
+                {overlay.content}
+              </div>
+            )}
+            {overlay.type === 'mention' && (
+              <button 
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const username = overlay.content.replace('@', '');
+                  try {
+                    const usersRef = collection(db, 'users');
+                    const q = query(usersRef, where('username', '==', username), limit(1));
+                    const snapshot = await getDocs(q);
+                    if (!snapshot.empty) {
+                      navigate(`/user/${snapshot.docs[0].id}`);
+                      onClose();
+                    } else {
+                      toast({ title: 'User not found' });
+                    }
+                  } catch (err) {
+                    console.error('Error fetching user:', err);
+                  }
+                }}
+                className={`font-bold text-3xl px-4 py-2 rounded-xl whitespace-pre-wrap text-center pointer-events-auto hover:scale-105 transition-transform ${overlay.fontFamily || 'font-sans'} ${overlay.hasBackground ? (overlay.color === 'text-black' ? 'bg-white text-black' : 'bg-black text-white') : overlay.color || 'text-white'}`}
+                style={{ textShadow: overlay.hasBackground ? 'none' : '0 2px 10px rgba(0,0,0,0.8)' }}
+              >
+                {overlay.content}
+              </button>
+            )}
+            {overlay.type === 'sticker' && (
+              <div className="text-6xl drop-shadow-2xl">{overlay.content}</div>
+            )}
+          </div>
+        </div>
+      ))}
 
       {/* Navigation */}
       {!showViewers && !showLikers && (
@@ -719,7 +858,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10">
                             <AvatarImage src={viewer.photoURL} alt={viewer.username} />
-                            <AvatarFallback>{viewer.username.charAt(0).toUpperCase()}</AvatarFallback>
+                            <AvatarFallback>{viewer.username?.charAt?.(0)?.toUpperCase() || '?'}</AvatarFallback>
                           </Avatar>
                           <span className="font-medium text-sm">{viewer.username}</span>
                         </div>
@@ -776,7 +915,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({ stories: initialStories, onCl
                     <div key={liker.uid} className="flex items-center gap-3">
                       <Avatar className="h-10 w-10">
                         <AvatarImage src={liker.photoURL} alt={liker.username} />
-                        <AvatarFallback>{liker.username.charAt(0).toUpperCase()}</AvatarFallback>
+                        <AvatarFallback>{liker.username?.charAt?.(0)?.toUpperCase() || '?'}</AvatarFallback>
                       </Avatar>
                       <div>
                         <span className="font-medium text-sm block">{liker.username}</span>

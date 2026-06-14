@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Heart, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface HeaderProps {
   title?: string;
@@ -15,6 +18,28 @@ const Header: React.FC<HeaderProps> = ({
   showCreate = true 
 }) => {
   const navigate = useNavigate();
+  const { userProfile } = useAuth();
+  const [hasUnread, setHasUnread] = useState(false);
+
+  useEffect(() => {
+    if (!userProfile?.uid || !showNotifications) return;
+
+    const notificationsQuery = query(
+      collection(db, 'notifications'),
+      where('toUserId', '==', userProfile.uid),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+
+    const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
+      const unreadExists = snapshot.docs.some(doc => doc.data().read === false);
+      setHasUnread(unreadExists);
+    }, (error) => {
+      console.error('Error fetching notifications for badge:', error);
+    });
+
+    return () => unsubscribe();
+  }, [userProfile?.uid, showNotifications]);
 
   return (
     <header className="sticky top-0 z-40 glass border-b border-border">
@@ -47,7 +72,10 @@ const Header: React.FC<HeaderProps> = ({
               className="relative p-2 rounded-full hover:bg-secondary transition-colors"
               aria-label="Notifications"
             >
-              <Heart className="w-6 h-6" />
+              <Heart className={`w-6 h-6 ${hasUnread ? 'text-red-500 fill-red-500' : ''}`} />
+              {hasUnread && (
+                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-background animate-pulse"></span>
+              )}
             </motion.button>
           )}
         </div>

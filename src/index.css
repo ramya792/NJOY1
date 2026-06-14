@@ -373,6 +373,12 @@
   .chat-messages > * {
     contain: layout style;
   }
+
+  /* Music Bounce Animation */
+  @keyframes music-bounce {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
 }
 
 @layer utilities {

@@ -146,11 +146,34 @@ const Reels: React.FC = () => {
     return () => unsubscribe();
   }, [userProfile]);
 
-  // Filter out private users' reels
+  // Filter out private users' reels and rank them by engagement/recency
   const visibleReels = useMemo(() => {
-    return reels.filter(reel =>
+    const filtered = reels.filter(reel =>
       reel.userId === userProfile?.uid || !privateUsers.has(reel.userId)
     );
+
+    // Score and sort reels based on engagement and recency, with a random rotation factor
+    const scoredReels = filtered.map(reel => {
+      // Recency score (newer reels get higher score, max 100 points for reels within last 24h)
+      const hoursAgo = (Date.now() - reel.createdAt.getTime()) / (1000 * 60 * 60);
+      const recencyScore = Math.max(0, 100 - hoursAgo * 2); 
+      
+      // Engagement score
+      const likesCount = reel.likes?.length || 0;
+      const commentsCount = reel.comments || 0;
+      const engagementScore = (likesCount * 2) + (commentsCount * 3);
+      
+      // Random rotation factor (0 to 30 points) to mix up the feed ("rotate all")
+      const randomFactor = Math.random() * 30;
+
+      return {
+        reel,
+        score: recencyScore + engagementScore + randomFactor
+      };
+    });
+
+    // Sort by score descending and extract the original reel
+    return scoredReels.sort((a, b) => b.score - a.score).map(p => p.reel);
   }, [reels, privateUsers, userProfile?.uid]);
 
   // Auto-scroll to target reel from URL ?id= parameter
@@ -254,6 +277,15 @@ const Reels: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentIndex, scrollToIndex]);
 
+  const [globalMuted, setGlobalMuted] = useState(() => {
+    return sessionStorage.getItem('njoy_reels_muted') === 'true';
+  });
+
+  const handleMuteToggle = useCallback((muted: boolean) => {
+    setGlobalMuted(muted);
+    sessionStorage.setItem('njoy_reels_muted', String(muted));
+  }, []);
+
   if (loading) {
     return (
       <div className="h-screen bg-foreground flex items-center justify-center">
@@ -298,6 +330,8 @@ const Reels: React.FC = () => {
             reel={reel}
             isActive={index === currentIndex}
             shouldPreload={Math.abs(index - currentIndex) <= 1}
+            globalMuted={globalMuted}
+            onMuteToggle={handleMuteToggle}
           />
         </div>
       ))}
